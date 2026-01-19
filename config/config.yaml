@@ -243,8 +243,8 @@ notification:
       msg_type: "markdown"            # 消息类型：markdown(群机器人) | text(个人微信应用)
 
     telegram:
-      bot_token: ""                   # Telegram Bot Token
-      chat_id: ""                     # Telegram Chat ID
+      bot_token: "TELEGRAM_BOT_TOKEN"                   # Telegram Bot Token
+      chat_id: "TELEGRAM_CHAT_ID"                     # Telegram Chat ID
 
     email:
       from: ""                        # 发件人邮箱地址
@@ -334,7 +334,7 @@ ai:
   
   model: "deepseek/deepseek-chat"
 
-  api_key: ""                       # API Key（建议使用环境变量 AI_API_KEY）
+  api_key: "AI_API_KEY"                       # API Key（建议使用环境变量 AI_API_KEY）
   
   api_base: ""                      # 自定义 API 端点（可选，大多数情况留空）
                                     # 示例: https://api.openai.com/v1（自建代理或兼容接口）
