@@ -23,6 +23,8 @@ class AIAnalysisResult:
     signals: str = ""                    # 异动与弱信号
     rss_insights: str = ""               # RSS 深度洞察
     outlook_strategy: str = ""           # 研判与策略建议
+    # === 【新增】股票分析专用数据 ===
+    stock_analysis_data: List[Dict] = None
 
     # 基础元数据
     raw_response: str = ""               # 原始响应
@@ -174,6 +176,60 @@ class AIAnalyzer:
         user_prompt = user_prompt.replace("{news_content}", news_content)
         user_prompt = user_prompt.replace("{rss_content}", rss_content)
         user_prompt = user_prompt.replace("{language}", self.language)
+        # === 【新增】强制注入行业分类指令 ===
+        # 这段指令会告诉 AI 必须返回符合 Stock Analysis 要求的 JSON 格式
+        stock_instruction = """
+        \n\n================ IMPORTANT ADDITIONAL INSTRUCTION ================
+        除了上述分析外，你必须在返回的 JSON 中增加一个字段 "stock_analysis_data"。
+        该字段是一个列表，包含从新闻中提取的关键事件，格式如下：
+        [
+          {
+            "title": "新闻标题",
+            "summary": "简短摘要",
+            "category": "必须从以下列表中选择一个: [Macro, Tech, Energy, Consumer, Finance, Healthcare]",
+            "sentiment": "Positive 或 Negative 或 Neutral"
+          }
+        ]
+        
+        【分类规则】：
+        1. Macro: 央行、利率、GDP、大盘指数、地缘政治。
+        2. Tech: AI、芯片、SaaS、互联网巨头、电子产品。
+        3. Energy: 石油、天然气、新能源车、电池、光伏。
+        4. Consumer: 零售、食品、旅游、娱乐。
+        5. Finance: 银行、保险、券商。
+        6. Healthcare: 医药、生物科技。
+        ==================================================================
+        """
+        user_prompt += stock_instruction
+        # =============================================================
+
+        if self.debug:
+            print("\n" + "=" * 80)
+            print("[AI 调试] 发送给 AI 的完整提示词")
+            print("=" * 80)
+            # ... (调试打印逻辑保持不变)
+
+        # 调用 AI API
+        try:
+            response = self._call_ai(user_prompt)
+            result = self._parse_response(response)
+
+            if not self.include_rss:
+                result.rss_insights = ""
+
+            result.total_news = total_news
+            result.hotlist_count = hotlist_total
+            result.rss_count = rss_total
+            result.analyzed_news = analyzed_count
+            result.max_news_limit = self.max_news
+            return result
+        except Exception as e:
+            # ... (错误处理逻辑保持不变)
+            error_type = type(e).__name__
+            error_msg = str(e)
+            if len(error_msg) > 200:
+                error_msg = error_msg[:200] + "..."
+            return AIAnalysisResult(success=False, error=f"AI 分析失败 ({error_type}): {error_msg}")
 
         if self.debug:
             print("\n" + "=" * 80)
@@ -428,6 +484,10 @@ class AIAnalyzer:
             result.signals = data.get("signals", "")
             result.rss_insights = data.get("rss_insights", "")
             result.outlook_strategy = data.get("outlook_strategy", "")
+
+            # === 【新增】解析股票分析数据 ===
+            # 如果 AI 很听话，这里就会有数据；如果不听话，就是一个空列表，程序不会崩
+            result.stock_analysis_data = data.get("stock_analysis_data", [])
             
             result.success = True
 
