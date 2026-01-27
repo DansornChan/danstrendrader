@@ -1310,7 +1310,8 @@ class NewsAnalyzer:
             )
 
         # === 修改3：在这里插入调用代码 ===
-        if ai_result and ai_result.success:
+        # 无论 AI 是否成功，都尝试导出（失败时会自动使用兜底数据）
+        if ai_result: 
             self._export_json_for_stock_analysis(ai_result)
         # ==========================
 
