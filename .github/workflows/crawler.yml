@@ -168,3 +168,11 @@ jobs:
           S3_REGION: ${{ secrets.S3_REGION }}
           GITHUB_ACTIONS: true
         run: python -m trendradar
+        # === 新增步骤：上传新闻数据供 Stock Analysis 使用 ===
+      - name: Upload News Artifact
+        if: success()  # 只有爬虫运行成功才上传
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-summary-json       # 这个名字要记好，daily_stock_analysis 里要用
+          path: output/*.json           # ⚠️ 注意：这里假设你的 Python 代码把结果存到了 output 文件夹
+          retention-days: 1             # 只保留1天
