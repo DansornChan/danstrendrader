@@ -174,5 +174,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: news-summary-json       # 这个名字要记好，daily_stock_analysis 里要用
-          path: output/*.json           # ⚠️ 注意：这里假设你的 Python 代码把结果存到了 output 文件夹
+          path: output/news_summary.json           # ⚠️ 注意：这里假设你的 Python 代码把结果存到了 output 文件夹
           retention-days: 1             # 只保留1天
