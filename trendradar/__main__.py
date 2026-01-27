@@ -8,6 +8,7 @@ TrendRadar 主程序
 
 import os
 import webbrowser
+import json  # <--- 修改1：已添加 json 模块
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
@@ -151,6 +152,36 @@ class NewsAnalyzer:
     def _should_open_browser(self) -> bool:
         """判断是否应该打开浏览器"""
         return not self.is_github_actions and not self.is_docker_container
+
+    # === 修改2：新增导出 JSON 方法 ===
+    def _export_json_for_stock_analysis(self, ai_result: AIAnalysisResult) -> None:
+        """将 AI 分析结果保存为 JSON 文件"""
+        try:
+            output_dir = Path("output")
+            output_dir.mkdir(parents=True, exist_ok=True)
+            file_path = output_dir / "news_summary.json"
+
+            # 优先使用 AI 生成的结构化数据 (stock_analysis_data)
+            if ai_result.stock_analysis_data and len(ai_result.stock_analysis_data) > 0:
+                data = ai_result.stock_analysis_data
+                print(f"[导出] 成功提取 {len(data)} 条行业分类数据")
+            else:
+                # 兜底：如果没有结构化数据，就把整段文本算作 Macro
+                print("[导出] 警告：AI 未返回结构化数据，使用默认兜底")
+                data = [{
+                    "category": "Macro",
+                    "title": "市场宏观综述",
+                    "summary": ai_result.core_trends[:200] + "..." if ai_result.core_trends else "无分析内容",
+                    "sentiment": "Neutral"
+                }]
+
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            
+            print(f"[导出] Stock Analysis 专用数据已保存: {file_path}")
+        except Exception as e:
+            print(f"[导出] 保存 JSON 失败: {e}")
+    # =================================
 
     def _setup_proxy(self) -> None:
         """设置代理配置"""
@@ -1277,6 +1308,11 @@ class NewsAnalyzer:
                 rss_new_items=rss_new_items,
                 standalone_data=standalone_data,
             )
+
+        # === 修改3：在这里插入调用代码 ===
+        if ai_result and ai_result.success:
+            self._export_json_for_stock_analysis(ai_result)
+        # ==========================
 
         if html_file:
             print(f"HTML报告已生成: {html_file}")
