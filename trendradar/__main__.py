@@ -504,7 +504,9 @@ class NewsAnalyzer:
     def _deduplicate_items(self, items_list: List[Dict]) -> List[Dict]:
         """
         核心去重逻辑：标题相似度 > 0.7 的视为同一条新闻，合并频次。
+        同时执行 max_news_per_keyword 截断。
         """
+        from difflib import SequenceMatcher
         if not items_list:
             return []
 
@@ -532,6 +534,12 @@ class NewsAnalyzer:
                     item['count'] = 1
                 deduped.append(item)
         
+        # === 新增：强制执行数量限制 ===
+        # 读取配置中的限制，默认 3 条
+        limit = self.ctx.config.get("REPORT", {}).get("MAX_NEWS_PER_KEYWORD", 3)
+        if limit > 0 and len(deduped) > limit:
+            deduped = deduped[:limit]
+            
         return deduped
 
     def _run_analysis_pipeline(
@@ -630,18 +638,66 @@ class NewsAnalyzer:
         has_notification = self._has_notification_configured()
         cfg = self.ctx.config
 
-        has_news_content = self._has_valid_content(stats, new_titles)
+        # ---------------------------------------------------------------
+        # 1. AI 分析：必须使用【完整数据】(包含弱信号)
+        # ---------------------------------------------------------------
+        if ai_result is None:
+            ai_config = cfg.get("AI_ANALYSIS", {})
+            if ai_config.get("ENABLED", False):
+                # 这里传入的是 stats 全量数据，确保 AI 能看到排名靠后的弱信号
+                ai_result = self._run_analysis_pipeline(
+                    stats, rss_items, mode, report_type, id_to_name
+                )
+
+        # ---------------------------------------------------------------
+        # 2. 列表展示：构建【精简数据】(隐藏弱信号)
+        # ---------------------------------------------------------------
+        # 策略：如果一个板块只有 1 条新闻，且这条新闻排名在 10 名以外，
+        # 我们认为它是"太弱的信号"，不值得占用列表空间，只让 AI 分析即可。
+        
+        filtered_stats_for_display = []
+        if stats:
+            for group in stats:
+                titles = group.get('titles', [])
+                if not titles:
+                    continue
+                
+                # 判断逻辑：
+                # 1. 如果有 2 条及以上新闻 -> 强板块，显示
+                # 2. 如果只有 1 条，但排名在 前10 -> 强新闻，显示
+                # 3. 否则 -> 弱信号，隐藏列表 (但 AI 已经读过了)
+                
+                is_strong = len(titles) >= 2
+                if not is_strong:
+                    # 检查排名，如果没有排名数据(rank=0)，默认视为弱
+                    top_rank = titles[0].get('rank', 999)
+                    if top_rank > 0 and top_rank <= 10:
+                        is_strong = True
+                
+                if is_strong:
+                    filtered_stats_for_display.append(group)
+                else:
+                    # 可以在这里打印日志方便调试
+                    # print(f"[列表优化] 隐藏弱信号板块: {group['word']} (仅1条且排名靠后)")
+                    pass
+
+        # ---------------------------------------------------------------
+        # 3. 生成报告并推送
+        # ---------------------------------------------------------------
+        # 注意：这里传入的是 filtered_stats_for_display，只包含强板块
+        report_data = self.ctx.prepare_report(filtered_stats_for_display, failed_ids, new_titles, id_to_name, mode)
+        
+        update_info_to_send = self.update_info if cfg["SHOW_VERSION_UPDATE"] else None
+
+        has_news_content = self._has_valid_content(filtered_stats_for_display, new_titles)
         has_rss_content = bool(rss_items and len(rss_items) > 0)
         has_any_content = has_news_content or has_rss_content
 
-        news_count = sum(len(stat.get("titles", [])) for stat in stats) if stats else 0
-        rss_count = sum(stat.get("count", 0) for stat in rss_items) if rss_items else 0
-
-        if (
-            cfg["ENABLE_NOTIFICATION"]
-            and has_notification
-            and has_any_content
-        ):
+        if cfg["ENABLE_NOTIFICATION"] and has_notification and has_any_content:
+            # 输出推送内容统计 (基于过滤后的数据)
+            news_count = sum(len(stat.get("titles", [])) for stat in filtered_stats_for_display)
+            rss_count = sum(stat.get("count", 0) for stat in rss_items) if rss_items else 0
+            
             content_parts = []
             if news_count > 0:
                 content_parts.append(f"热榜 {news_count} 条")
@@ -650,6 +706,7 @@ class NewsAnalyzer:
             total_count = news_count + rss_count
             print(f"[推送] 准备发送：{' + '.join(content_parts)}，合计 {total_count} 条")
 
+            # 推送窗口控制
             if cfg["PUSH_WINDOW"]["ENABLED"]:
                 push_manager = self.ctx.create_push_manager()
                 time_range_start = cfg["PUSH_WINDOW"]["TIME_RANGE"]["START"]
@@ -657,23 +714,13 @@ class NewsAnalyzer:
 
                 if not push_manager.is_in_time_range(time_range_start, time_range_end):
                     now = self.ctx.get_time()
-                    print(f"推送窗口控制：不在推送时间窗口内，跳过")
+                    print(f"推送窗口控制：当前时间 {now.strftime('%H:%M')} 不在推送时间窗口 {time_range_start}-{time_range_end} 内，跳过推送")
                     return False
 
                 if cfg["PUSH_WINDOW"]["ONCE_PER_DAY"]:
                     if push_manager.has_pushed_today():
-                        print(f"推送窗口控制：今天已推送过，跳过")
+                        print(f"推送窗口控制：今天已推送过，跳过本次推送")
                         return False
-
-            if ai_result is None:
-                ai_config = cfg.get("AI_ANALYSIS", {})
-                if ai_config.get("ENABLED", False):
-                    ai_result = self._run_ai_analysis(
-                        stats, rss_items, mode, report_type, id_to_name
-                    )
-
-            report_data = self.ctx.prepare_report(stats, failed_ids, new_titles, id_to_name, mode)
-            update_info_to_send = self.update_info if cfg["SHOW_VERSION_UPDATE"] else None
 
             dispatcher = self.ctx.create_notification_dispatcher()
             results = dispatcher.dispatch_all(
@@ -685,7 +732,7 @@ class NewsAnalyzer:
                 html_file_path=html_file_path,
                 rss_items=rss_items,
                 rss_new_items=rss_new_items,
-                ai_analysis=ai_result,
+                ai_analysis=ai_result, # AI 结果是基于全量数据的
                 standalone_data=standalone_data,
             )
 
@@ -694,6 +741,8 @@ class NewsAnalyzer:
                 push_manager.record_push(report_type)
 
             return True
+        elif cfg["ENABLE_NOTIFICATION"] and has_notification and not has_any_content:
+             print(f"跳过{report_type}通知：经筛选后未检测到匹配的强信号新闻")
 
         return False
 
