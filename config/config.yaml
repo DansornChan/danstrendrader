@@ -70,28 +70,27 @@ platforms:
 # 3. 数据源 - RSS 订阅
 # ===============================================================
 rss:
-  enabled: true                        # 是否启用 RSS 抓取
-
+  enabled: true
   freshness_filter:
-    enabled: true                      # 是否启用新鲜度过滤
-    max_age_days: 2                    # 央视新闻更新快，建议设为 2 天
+    enabled: true
+    max_age_days: 2
 
   feeds:
-    # --- 🔴 央视新闻 (CCTV) 官方源 ---
-    # 权威定调，AI 分析政策风向的基石
-    - id: "cctv-top"
-      name: "央视新闻-头条"
-      url: "http://news.cctv.com/rss/index.xml"
+    # --- 🔴 官方权威源 (替换失效的 CCTV) ---
+    - id: "chinanews-import"
+      name: "中新网-要闻"
+      url: "https://www.chinanews.com.cn/rss/import.xml"
 
-    - id: "cctv-china"
-      name: "央视新闻-国内"
-      url: "http://news.cctv.com/rss/xml/news/china.xml"
+    - id: "chinanews-finance"
+      name: "中新网-财经"
+      url: "https://www.chinanews.com.cn/rss/finance.xml"
 
-    - id: "cctv-world"
-      name: "央视新闻-国际"
-      url: "http://news.cctv.com/rss/xml/news/world.xml"
-
-    # --- 🔵 技术与外媒补充 ---
+    # --- 🟡 国际视野 ---
+    - id: "zaobao-china"
+      name: "联合早报-中国"
+      url: "https://www.zaobao.com.sg/rss/news/china"
+      
+    # --- 🔵 技术 ---
     - id: "hacker-news"
       name: "Hacker News"
       url: "https://hnrss.org/frontpage"
