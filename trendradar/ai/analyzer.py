@@ -24,7 +24,7 @@ class AIAnalysisResult:
     rss_insights: str = ""               # RSS 深度洞察
     outlook_strategy: str = ""           # 研判与策略建议
     
-    # === 【新增】股票分析专用数据 (确保这里定义了) ===
+    # === 【新增】股票分析专用数据 ===
     stock_analysis_data: List[Dict] = field(default_factory=list)
 
     # 基础元数据
@@ -52,11 +52,6 @@ class AIAnalyzer:
     ):
         """
         初始化 AI 分析器
-        Args:
-            ai_config: AI 模型配置（LiteLLM 格式）
-            analysis_config: AI 分析功能配置（language, prompt_file 等）
-            get_time_func: 获取当前时间的函数
-            debug: 是否开启调试模式
         """
         self.ai_config = ai_config
         self.analysis_config = analysis_config
@@ -84,11 +79,9 @@ class AIAnalyzer:
 
     def _load_prompt_template(self, prompt_file: str) -> tuple:
         """加载提示词模板"""
-        # 尝试寻找 config 目录
-        # 假设结构是 trendradar/ai/analyzer.py -> trendradar/config/
         try:
             current_dir = Path(__file__).parent
-            # 向上找，直到找到 config 目录或者到达根目录
+            # 向上找 config 目录
             config_dir = None
             for parent in [current_dir.parent, current_dir.parent.parent]:
                 if (parent / "config").exists():
@@ -96,7 +89,6 @@ class AIAnalyzer:
                     break
             
             if not config_dir:
-                # 回退到默认相对路径
                 config_dir = Path(__file__).parent.parent.parent / "config"
 
             prompt_path = config_dir / prompt_file
@@ -107,7 +99,6 @@ class AIAnalyzer:
 
             content = prompt_path.read_text(encoding="utf-8")
 
-            # 解析 [system] 和 [user] 部分
             system_prompt = ""
             user_prompt = ""
 
@@ -135,7 +126,7 @@ class AIAnalyzer:
         report_type: str = "当日汇总",
         platforms: Optional[List[str]] = None,
         keywords: Optional[List[str]] = None,
-        portfolio_context: str = ""  # <--- 🆕 【修改1】新增参数接收持仓信息
+        portfolio_context: str = "" 
     ) -> AIAnalysisResult:
         """
         执行 AI 分析
@@ -147,6 +138,7 @@ class AIAnalyzer:
             )
 
         # 准备新闻内容并获取统计数据
+        # 🟢 修复点：确保 _prepare_news_content 是 self 的方法，且已被定义
         news_content, rss_content, hotlist_total, rss_total, analyzed_count = self._prepare_news_content(stats, rss_stats)
         total_news = hotlist_total + rss_total
 
@@ -163,3 +155,191 @@ class AIAnalyzer:
 
         # 构建提示词
         current_time = self.get_time_func().strftime("%Y-%m-%d %H:%M:%S")
+
+        if not keywords:
+            keywords = [s.get("word", "") for s in stats if s.get("word")] if stats else []
+
+        user_prompt = self.user_prompt_template
+        user_prompt = user_prompt.replace("{report_mode}", report_mode)
+        user_prompt = user_prompt.replace("{report_type}", report_type)
+        user_prompt = user_prompt.replace("{current_time}", current_time)
+        user_prompt = user_prompt.replace("{news_count}", str(hotlist_total))
+        user_prompt = user_prompt.replace("{rss_count}", str(rss_total))
+        user_prompt = user_prompt.replace("{platforms}", ", ".join(platforms) if platforms else "多平台")
+        user_prompt = user_prompt.replace("{keywords}", ", ".join(keywords[:20]) if keywords else "无")
+        user_prompt = user_prompt.replace("{news_content}", news_content)
+        user_prompt = user_prompt.replace("{rss_content}", rss_content)
+        user_prompt = user_prompt.replace("{language}", self.language)
+
+        # 动态注入持仓信息
+        if portfolio_context:
+            portfolio_section = f"""
+\n================ USER PORTFOLIO CONTEXT ================
+{portfolio_context}
+【指令】：在分析新闻时，请特别关注上述股票及其产业链上下游。
+如果新闻涉及这些公司，请在生成的 JSON "stock_analysis_data" 中将其 sentiment 标记准确，
+并在 core_trends 中使用【🔴 持仓关联】前缀进行高亮。
+========================================================
+"""
+            user_prompt += portfolio_section
+
+        # 强制注入结构化数据指令
+        stock_instruction = """
+\n\n================ REQUIRED JSON OUTPUT FORMAT ================
+请务必返回标准的 JSON 格式，除了常规分析字段外，必须包含 "stock_analysis_data" 字段。
+该字段用于量化分析，格式列表如下：
+[
+  {
+    "title": "新闻标题",
+    "summary": "简短摘要(包含了对持仓影响的分析)",
+    "category": "从列表选择: [Macro, Tech, Energy, Consumer, Finance, Healthcare, Auto, Other]",
+    "sentiment": "Positive 或 Negative 或 Neutral"
+  }
+]
+=============================================================
+"""
+        user_prompt += stock_instruction
+
+        # 调用 AI API
+        try:
+            response = self._call_ai(user_prompt)
+            result = self._parse_response(response)
+
+            if not self.include_rss:
+                result.rss_insights = ""
+
+            result.total_news = total_news
+            result.hotlist_count = hotlist_total
+            result.rss_count = rss_total
+            result.analyzed_news = analyzed_count
+            result.max_news_limit = self.max_news
+            return result
+        except Exception as e:
+            error_type = type(e).__name__
+            error_msg = str(e)
+            if len(error_msg) > 200:
+                error_msg = error_msg[:200] + "..."
+            return AIAnalysisResult(success=False, error=f"AI 分析失败 ({error_type}): {error_msg}")
+
+    # 🟢 关键修复：确保此方法在 AIAnalyzer 类缩进内部
+    def _prepare_news_content(
+        self,
+        stats: List[Dict],
+        rss_stats: Optional[List[Dict]] = None,
+    ) -> tuple:
+        """
+        准备新闻内容文本
+        Returns:
+            tuple: (news_content, rss_content, hotlist_total, rss_total, analyzed_count)
+        """
+        news_lines = []
+        rss_lines = []
+        news_count = 0
+        rss_count = 0
+
+        hotlist_total = sum(len(s.get("titles", [])) for s in stats) if stats else 0
+        rss_total = sum(len(s.get("titles", [])) for s in rss_stats) if rss_stats else 0
+
+        # 热榜内容
+        if stats:
+            for stat in stats:
+                word = stat.get("word", "")
+                titles = stat.get("titles", [])
+                if word and titles:
+                    news_lines.append(f"\n**{word}** ({len(titles)}条)")
+                    for t in titles[:3]: 
+                        if not isinstance(t, dict): continue
+                        title = t.get("title", "")
+                        source = t.get("source_name", t.get("source", ""))
+                        line = f"- [{source}] {title}"
+                        news_lines.append(line)
+                        news_count += 1
+                if news_count >= self.max_news:
+                    break
+
+        # RSS 内容
+        if self.include_rss and rss_stats:
+            remaining = self.max_news - news_count
+            if remaining > 0:
+                for stat in rss_stats:
+                    if rss_count >= remaining: break
+                    word = stat.get("word", "")
+                    titles = stat.get("titles", [])
+                    if word and titles:
+                        rss_lines.append(f"\n**{word}** ({len(titles)}条)")
+                        for t in titles[:2]:
+                            if not isinstance(t, dict): continue
+                            title = t.get("title", "")
+                            source = t.get("source_name", t.get("feed_name", ""))
+                            line = f"- [{source}] {title}"
+                            rss_lines.append(line)
+                            rss_count += 1
+                            if rss_count >= remaining: break
+
+        news_content = "\n".join(news_lines) if news_lines else ""
+        rss_content = "\n".join(rss_lines) if rss_lines else ""
+        total_count = news_count + rss_count
+
+        return news_content, rss_content, hotlist_total, rss_total, total_count
+
+    def _call_ai(self, user_prompt: str) -> str:
+        """调用 AI API（使用 LiteLLM）"""
+        messages = []
+        if self.system_prompt:
+            messages.append({"role": "system", "content": self.system_prompt})
+        messages.append({"role": "user", "content": user_prompt})
+
+        return self.client.chat(messages)
+
+    def _format_time_range(self, first_time: str, last_time: str) -> str:
+        """格式化时间范围"""
+        return f"{first_time}~{last_time}"
+
+    def _format_rank_timeline(self, rank_timeline: List[Dict]) -> str:
+        """格式化排名时间线"""
+        return "-"
+
+    def _parse_response(self, response: str) -> AIAnalysisResult:
+        """解析 AI 响应"""
+        result = AIAnalysisResult(raw_response=response)
+
+        if not response or not response.strip():
+            result.error = "AI 返回空响应"
+            return result
+
+        try:
+            json_str = response
+            if "```json" in response:
+                parts = response.split("```json", 1)
+                if len(parts) > 1:
+                    code_block = parts[1]
+                    end_idx = code_block.find("```")
+                    json_str = code_block[:end_idx] if end_idx != -1 else code_block
+            elif "```" in response:
+                parts = response.split("```", 2)
+                if len(parts) >= 2:
+                    json_str = parts[1]
+
+            json_str = json_str.strip()
+            if not json_str:
+                json_str = response
+
+            data = json.loads(json_str)
+
+            result.core_trends = data.get("core_trends", "")
+            result.sentiment_controversy = data.get("sentiment_controversy", "")
+            result.signals = data.get("signals", "")
+            result.rss_insights = data.get("rss_insights", "")
+            result.outlook_strategy = data.get("outlook_strategy", "")
+            
+            # === 解析股票数据 ===
+            result.stock_analysis_data = data.get("stock_analysis_data", [])
+            
+            result.success = True
+
+        except Exception as e:
+            result.error = f"JSON 解析失败: {str(e)}"
+            result.core_trends = response[:500] + "..." if len(response) > 500 else response
+            result.success = True 
+
+        return result
