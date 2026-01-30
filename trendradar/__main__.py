@@ -1003,7 +1003,7 @@ class NewsAnalyzer:
                 raw_rss_items
             )
 
-            # 调用分析流水线 (内部已包含去重逻辑)
+            # 调用分析流水线
             stats, html_file, ai_result = self._run_analysis_pipeline(
                 all_results if self.report_mode in ["current", "daily"] else results,
                 self.report_mode,
@@ -1019,9 +1019,16 @@ class NewsAnalyzer:
                 standalone_data=standalone_data,
             )
             
-            # JSON 导出
+            # === 🟢 核心修复：JSON 导出兜底逻辑 ===
             if ai_result: 
                 self._export_json_for_stock_analysis(ai_result)
+            else:
+                # 如果 AI 没跑（比如没有匹配到新闻），强制生成一个空的 JSON
+                # 这样 GitHub Actions 的 upload-artifact 就不会报错了
+                print("[系统] 未触发 AI 分析，生成兜底 JSON 文件...")
+                dummy_result = AIAnalysisResult(success=True, core_trends="无重大市场异动")
+                self._export_json_for_stock_analysis(dummy_result)
+            # =======================================
 
             # 发送通知
             if mode_strategy["should_send_notification"]:
