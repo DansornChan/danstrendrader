@@ -123,7 +123,8 @@ jobs:
           GENERIC_WEBHOOK_TEMPLATE: ${{ secrets.GENERIC_WEBHOOK_TEMPLATE }}
           
           # --- AI 配置 ---
-          AI_ANALYSIS_ENABLED: ${{ secrets.AI_ANALYSIS_ENABLED }}
+          # 🔴 关键修改：直接设为 true，不要依赖 secrets
+          AI_ANALYSIS_ENABLED: true
           AI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           AI_MODEL: ${{ secrets.AI_MODEL }}
           AI_API_BASE: ${{ secrets.AI_API_BASE }}
