@@ -1,10 +1,10 @@
 # coding=utf-8
 """
-AI Client（稳定兼容版）
+AI Client（终极兼容版）
 
-- LiteLLM Primary / Fallback 正确用法
-- 兼容旧 validate_config() 调用
-- 防止 model 被错误传为 list
+- 兼容旧 validate_config() → (bool, str)
+- LiteLLM 正确 fallback
+- 防止 model=list 导致 split 崩溃
 """
 
 import os
@@ -24,10 +24,10 @@ logger = logging.getLogger(__name__)
 class AIClient:
     def __init__(self, config: Dict[str, Any]):
         # ===== Primary =====
-        self.model: str = config.get("MODEL") or os.getenv("PRIMARY_MODEL")
-        self.api_key: str = config.get("API_KEY") or os.getenv("PRIMARY_API_KEY")
+        self.model = config.get("MODEL") or os.getenv("PRIMARY_MODEL")
+        self.api_key = config.get("API_KEY") or os.getenv("PRIMARY_API_KEY")
 
-        # ===== Fallback（一定是 list）=====
+        # ===== Fallback =====
         self.fallback_models: List[Dict[str, str]] = config.get(
             "FALLBACK_MODELS", []
         )
@@ -42,23 +42,23 @@ class AIClient:
             config.get("DRY_RUN_AI") or os.getenv("DRY_RUN_AI", "false")
         ).lower() == "true"
 
-        self._validate()
-
     # ------------------------------------------------------------------
-
-    # ✅ 兼容旧代码（不要删）
+    # ✅ 旧代码兼容接口（非常关键）
     def validate_config(self):
-        self._validate()
+        try:
+            self._validate()
+            return True, ""
+        except Exception as e:
+            return False, str(e)
 
     # ------------------------------------------------------------------
-
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         if self.dry_run:
             logger.warning("🧪 DRY_RUN_AI=true，未调用真实模型")
             return self._dry_run_response(messages)
 
         params = {
-            "model": self.model,               # ⚠️ 必须是 string
+            "model": self.model,      # ⚠️ 必须是 string
             "messages": messages,
             "api_key": self.api_key,
             "temperature": self.temperature,
@@ -69,18 +69,18 @@ class AIClient:
         if self.max_tokens > 0:
             params["max_tokens"] = self.max_tokens
 
-        # ✅ LiteLLM 正确 fallback 方式
+        # ✅ LiteLLM 官方 fallback 用法
         if self.fallback_models:
             params["fallbacks"] = self.fallback_models
 
         try:
-            logger.info(f"🤖 Primary 模型: {self.model}")
+            logger.info(f"🤖 使用模型: {self.model}")
             resp = completion(**params)
             return resp.choices[0].message.content
 
         except (RateLimitError, BadRequestError) as e:
             logger.warning(
-                f"⚠️ Primary 失败，错误={type(e).__name__}，LiteLLM 将自动尝试 fallback"
+                f"⚠️ Primary 失败，将尝试 fallback（{type(e).__name__}）"
             )
             raise
 
@@ -89,25 +89,20 @@ class AIClient:
             raise
 
     # ------------------------------------------------------------------
-
     def _dry_run_response(self, messages):
         preview = ""
         for m in messages:
             if m.get("role") == "user":
                 preview += m.get("content", "")[:200]
-
-        return (
-            "【DRY RUN】未调用真实模型\n\n"
-            f"用户输入摘要：{preview}"
-        )
+        return f"【DRY RUN】AI 未调用\n摘要：{preview}"
 
     # ------------------------------------------------------------------
-
     def _validate(self):
+        if not self.model:
+            raise ValueError("未配置 PRIMARY_MODEL")
+
         if not isinstance(self.model, str):
-            raise ValueError(
-                f"PRIMARY_MODEL 必须是字符串，当前={self.model}"
-            )
+            raise ValueError("PRIMARY_MODEL 必须是字符串")
 
         if "/" not in self.model:
             raise ValueError(
