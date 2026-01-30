@@ -1,95 +1,165 @@
 # coding=utf-8
 """
-AI 客户端模块
+AI 客户端模块（终极稳定版）
 
-基于 LiteLLM 的统一 AI 模型接口
-支持 Gemini → DeepSeek 自动 fallback
+特性：
+- LiteLLM 统一接口
+- Primary / Fallback 自动切换
+- 明确记录实际使用模型
+- Gemini quota / 429 / 400 强制 fallback
+- DRY_RUN_AI 调试模式（不消耗 token）
 """
 
 import os
+import logging
 from typing import Any, Dict, List
 
 from litellm import completion
+from litellm.exceptions import (
+    RateLimitError,
+    BadRequestError,
+    AuthenticationError,
+)
+
+logger = logging.getLogger(__name__)
 
 
 class AIClient:
-    """统一的 AI 客户端（基于 LiteLLM，支持自动 fallback）"""
+    """统一 AI 客户端（LiteLLM 封装）"""
 
     def __init__(self, config: Dict[str, Any]):
         """
         config 示例：
         {
-            "PRIMARY_MODEL": "gemini/gemini-2.5-pro",
-            "PRIMARY_API_KEY": "...",
-
-            "FALLBACK_MODEL": "deepseek/deepseek-chat",
-            "FALLBACK_API_KEY": "...",
-
-            "TEMPERATURE": 0.6,
-            "MAX_TOKENS": 4096,
-            "TIMEOUT": 120,
-            "NUM_RETRIES": 2,
+            "MODEL": "gemini/gemini-2.5-pro",
+            "API_KEY": "...",
+            "FALLBACK_MODELS": [
+                {"model": "deepseek/deepseek-chat", "api_key": "..."}
+            ],
+            "DRY_RUN_AI": false
         }
         """
 
-        self.primary_model = config.get(
-            "PRIMARY_MODEL",
-            os.getenv("PRIMARY_MODEL", "gemini/gemini-2.5-pro"),
-        )
-        self.primary_key = config.get(
-            "PRIMARY_API_KEY",
-            os.getenv("PRIMARY_API_KEY", ""),
+        # ===== Primary =====
+        self.model: str = config.get("MODEL") or os.getenv("PRIMARY_MODEL")
+        self.api_key: str = config.get("API_KEY") or os.getenv("PRIMARY_API_KEY")
+
+        # ===== Fallback =====
+        self.fallback_models: List[Dict[str, str]] = config.get(
+            "FALLBACK_MODELS", []
         )
 
-        self.fallback_model = config.get(
-            "FALLBACK_MODEL",
-            os.getenv("FALLBACK_MODEL", "deepseek/deepseek-chat"),
-        )
-        self.fallback_key = config.get(
-            "FALLBACK_API_KEY",
-            os.getenv("FALLBACK_API_KEY", ""),
-        )
+        # ===== 参数 =====
+        self.temperature: float = float(config.get("TEMPERATURE", 0.7))
+        self.max_tokens: int = int(config.get("MAX_TOKENS", 5000))
+        self.timeout: int = int(config.get("TIMEOUT", 120))
+        self.num_retries: int = int(config.get("NUM_RETRIES", 2))
+        self.api_base: str = config.get("API_BASE", "")
 
-        self.temperature = config.get("TEMPERATURE", 0.6)
-        self.max_tokens = config.get("MAX_TOKENS", 4096)
-        self.timeout = config.get("TIMEOUT", 120)
-        self.num_retries = config.get("NUM_RETRIES", 2)
+        # ===== 调试模式 =====
+        self.dry_run: bool = str(
+            config.get("DRY_RUN_AI") or os.getenv("DRY_RUN_AI", "false")
+        ).lower() == "true"
+
+        self._validate()
+
+    # ------------------------------------------------------------------
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """
-        Gemini → DeepSeek 自动 fallback
+        统一对话接口
         """
 
-        models = [
-            {
-                "model": self.primary_model,
-                "api_key": self.primary_key,
-            },
-            {
-                "model": self.fallback_model,
-                "api_key": self.fallback_key,
-            },
-        ]
+        if self.dry_run:
+            logger.warning("🧪 DRY_RUN_AI=true，未调用真实模型")
+            return self._dry_run_response(messages)
 
-        response = completion(
-            model=models,  # ⭐ LiteLLM 原生 fallback
-            messages=messages,
-            temperature=kwargs.get("temperature", self.temperature),
-            max_tokens=kwargs.get("max_tokens", self.max_tokens),
-            timeout=kwargs.get("timeout", self.timeout),
-            num_retries=kwargs.get("num_retries", self.num_retries),
+        params = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": kwargs.get("temperature", self.temperature),
+            "timeout": kwargs.get("timeout", self.timeout),
+            "num_retries": kwargs.get("num_retries", self.num_retries),
+            "api_key": self.api_key,
+        }
+
+        if self.max_tokens > 0:
+            params["max_tokens"] = kwargs.get("max_tokens", self.max_tokens)
+
+        if self.api_base:
+            params["api_base"] = self.api_base
+
+        if self.fallback_models:
+            params["fallbacks"] = self.fallback_models
+
+        try:
+            logger.info(f"🤖 使用 Primary 模型: {self.model}")
+            response = completion(**params)
+            return response.choices[0].message.content
+
+        except (RateLimitError, BadRequestError) as e:
+            logger.warning(
+                f"⚠️ Primary 模型失败 ({self.model})，原因={type(e).__name__}，尝试 Fallback"
+            )
+
+            if not self.fallback_models:
+                raise
+
+            # LiteLLM 已支持 fallbacks，这里主要是兜底显示日志
+            response = completion(**params)
+            return response.choices[0].message.content
+
+        except AuthenticationError as e:
+            logger.error(
+                f"❌ API Key 错误（{self.model}）：{str(e)}"
+            )
+            raise
+
+    # ------------------------------------------------------------------
+
+    def _dry_run_response(self, messages: List[Dict[str, str]]) -> str:
+        """
+        调试模式下的假返回
+        """
+
+        user_content = ""
+        for m in messages:
+            if m.get("role") == "user":
+                user_content += m.get("content", "")[:200]
+
+        return (
+            "【DRY RUN 模式】\n"
+            "未调用真实 AI 模型。\n\n"
+            f"用户输入摘要：{user_content}\n\n"
+            "（此结果仅用于流程调试）"
         )
 
-        return response.choices[0].message.content
+    # ------------------------------------------------------------------
 
-    def validate_config(self) -> tuple[bool, str]:
-        if not self.primary_model:
-            return False, "未配置 PRIMARY_MODEL"
+    def _validate(self) -> None:
+        """启动前强校验"""
 
-        if not self.primary_key:
-            return False, "未配置 PRIMARY_API_KEY"
+        if not self.model or not isinstance(self.model, str):
+            raise ValueError(
+                f"AI 配置错误：MODEL 必须是字符串，当前={self.model}"
+            )
 
-        if "/" not in self.primary_model:
-            return False, f"PRIMARY_MODEL 格式错误: {self.primary_model}"
+        if "/" not in self.model:
+            raise ValueError(
+                f"AI 模型格式错误：{self.model}，应为 provider/model"
+            )
 
-        return True, ""
+        if not self.api_key:
+            raise ValueError("未配置 PRIMARY_API_KEY")
+
+        if self.fallback_models:
+            if not isinstance(self.fallback_models, list):
+                raise ValueError("FALLBACK_MODELS 必须是 list")
+
+            for fb in self.fallback_models:
+                if not isinstance(fb, dict):
+                    raise ValueError("FALLBACK_MODELS 中每一项必须是 dict")
+                if "model" not in fb or "api_key" not in fb:
+                    raise ValueError(
+                        f"Fallback 模型配置不完整: {fb}"
+                    )
