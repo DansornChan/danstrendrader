@@ -27,18 +27,11 @@ platforms:
     - id: "wallstreetcn-hot"            # 华尔街见闻：宏观与全球市场
       name: "华尔街见闻"
 
-    - id: "xueqiu-hot"                  # 雪球：感知散户情绪与小作文
-      name: "雪球热帖"
-
     - id: "jin10"                       # 金十：外汇/贵金属/美股快讯
       name: "金十数据"
 
     - id: "gelonghui"                   # 格隆汇：港美A股深度
       name: "格隆汇"
-
-    # --- 🔵 科技与产业源 (半导体/AI 持仓必选) ---
-    - id: "36kr-newsflashes"            # 36氪：一级市场与科技前沿
-      name: "36氪快讯"
 
     # --- 🟡 综合/国际/官方视角 ---
     - id: "zaobao"                      # 联合早报：优质第三方客观视角
