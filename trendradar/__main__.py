@@ -9,11 +9,10 @@ TrendRadar 主程序
 import os
 import webbrowser
 import json
+import requests
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from difflib import SequenceMatcher
-
-import requests
 
 from trendradar.context import AppContext
 from trendradar import __version__
@@ -154,6 +153,50 @@ class NewsAnalyzer:
         """判断是否应该打开浏览器"""
         return not self.is_github_actions and not self.is_docker_container
 
+    # --- 🆕 新增：获取用户持仓上下文 ---
+    def _fetch_portfolio_context(self) -> str:
+        """
+        从 GitHub 获取用户持仓配置，并生成 A 股代码识别上下文
+        """
+        # 这里硬编码你的仓库地址，或者你可以把它放到 config.yaml 里读取
+        url = "https://raw.githubusercontent.com/DansornChan/daily_stock_analysis/main/portfolio.json"
+        
+        print("[Context] 正在同步持仓数据...")
+        try:
+            # 如果是私有库，可以在 headers 中加入 Authorization
+            response = requests.get(url, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                
+                # 兼容处理：如果是 list 直接用，如果是 dict 取 keys
+                if isinstance(data, dict):
+                    codes = list(data.keys())
+                elif isinstance(data, list):
+                    codes = data
+                else:
+                    codes = []
+                
+                # 过滤出 6 位数字代码 (A股特征)
+                a_share_codes = [str(c) for c in codes if str(c).isdigit() and len(str(c)) == 6]
+                
+                if not a_share_codes:
+                    return ""
+                
+                # 生成给 AI 的 Prompt 片段
+                context = (
+                    f"【用户核心持仓（中国A股）】代码列表: {', '.join(a_share_codes)}。\n"
+                    f"指令：请务必根据代码（如 600406 -> 国电南瑞）识别对应的公司实体及所属行业产业链，"
+                    f"若新闻涉及这些公司或其上下游，请标记为【🔴 持仓关联】。"
+                )
+                print(f"[Context] 成功加载 {len(a_share_codes)} 只持仓股票上下文")
+                return context
+            else:
+                print(f"[Context] 获取持仓失败: HTTP {response.status_code}")
+                return ""
+        except Exception as e:
+            print(f"[Context] 同步持仓出错: {e}")
+            return ""
+
     def _export_json_for_stock_analysis(self, ai_result: AIAnalysisResult) -> None:
         """将 AI 分析结果保存为 JSON 文件"""
         try:
@@ -272,6 +315,9 @@ class NewsAnalyzer:
 
         print("[AI] 正在进行 AI 分析...")
         try:
+            # 1. 获取持仓上下文 (新增逻辑)
+            portfolio_context = self._fetch_portfolio_context()
+
             ai_config = self.ctx.config.get("AI", {})
             debug_mode = self.ctx.config.get("DEBUG", False)
             analyzer = AIAnalyzer(ai_config, analysis_config, self.ctx.get_time, debug=debug_mode)
@@ -282,6 +328,7 @@ class NewsAnalyzer:
             # 提取关键词列表
             keywords = [s.get("word", "") for s in stats if s.get("word")] if stats else []
 
+            # 2. 传递 portfolio_context 给分析器
             result = analyzer.analyze(
                 stats=stats,
                 rss_stats=rss_items,
@@ -289,6 +336,7 @@ class NewsAnalyzer:
                 report_type=report_type,
                 platforms=platforms,
                 keywords=keywords,
+                portfolio_context=portfolio_context  # 👈 关键注入点
             )
 
             if result.success:
