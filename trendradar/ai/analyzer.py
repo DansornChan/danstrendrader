@@ -131,11 +131,12 @@ class AIAnalyzer:
         """
         执行 AI 分析
         """
-        if not self.client.api_key:
-            return AIAnalysisResult(
-                success=False,
-                error="未配置 AI API Key，请在 config.yaml 或环境变量 AI_API_KEY 中设置"
-            )
+        valid, error = self.client.validate_config()
+        if not valid:
+           return AIAnalysisResult(
+               success=False,
+               error=error
+           )
 
         # 准备新闻内容并获取统计数据
         # 🟢 修复点：确保 _prepare_news_content 是 self 的方法，且已被定义
