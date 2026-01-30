@@ -76,20 +76,16 @@ rss:
     max_age_days: 2
 
   feeds:
-    # --- 🔴 官方权威源 (替换失效的 CCTV) ---
+    # --- 🔴 官方权威源 (已修正链接) ---
+    # 中新网的标准 RSS 地址是 http://www.chinanews.com/rss/...
     - id: "chinanews-import"
       name: "中新网-要闻"
-      url: "https://www.chinanews.com.cn/rss/import.xml"
+      url: "http://www.chinanews.com/rss/import.xml"
 
     - id: "chinanews-finance"
       name: "中新网-财经"
-      url: "https://www.chinanews.com.cn/rss/finance.xml"
+      url: "http://www.chinanews.com/rss/finance.xml"
 
-    # --- 🟡 国际视野 ---
-    - id: "zaobao-china"
-      name: "联合早报-中国"
-      url: "https://www.zaobao.com.sg/rss/news/china"
-      
     # --- 🔵 技术 ---
     - id: "hacker-news"
       name: "Hacker News"
