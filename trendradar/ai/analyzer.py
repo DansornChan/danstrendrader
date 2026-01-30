@@ -62,9 +62,21 @@ class AIAnalyzer:
         self.client = AIClient(ai_config)
 
         # 验证配置
-        valid, error = self.client.validate_config()
+        try:
+            result = self.client.validate_config()
+        except Exception as e:
+            logger.exception("[AI] validate_config 异常")
+            result = (False, str(e))
+
+        # 🔒 强制兜底，防止 None
+        if not isinstance(result, tuple) or len(result) != 2:
+            logger.error("[AI] validate_config 返回非法值，已兜底")
+            valid, error = False, "AI 配置校验失败（返回值非法）"
+        else:
+            valid, error = result
+
         if not valid:
-            print(f"[AI] 配置警告: {error}")
+            raise RuntimeError(error)
 
         # 从分析配置获取功能参数
         self.max_news = analysis_config.get("MAX_NEWS_FOR_ANALYSIS", 50)
