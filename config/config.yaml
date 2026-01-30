@@ -9,7 +9,7 @@
 app:
   # 时区配置（影响所有时间显示、推送窗口判断、数据存储）
   timezone: "Asia/Shanghai"
-  show_version_update: true           # 显示版本更新提示
+  show_version_update: true             # 显示版本更新提示
 
 
 # ===============================================================
@@ -17,22 +17,44 @@ app:
 # ===============================================================
 platforms:
   enabled: true                         # 是否启用热榜平台抓取
+  concurrency: 3                        # 并发控制，防止请求过快被封
+
   sources:
-    - id: "toutiao"
-      name: "今日头条"
-    - id: "wallstreetcn-hot"
+    # --- 🟢 核心金融源 (A股/宏观/量化必选) ---
+    - id: "cls-telegraph"               # 财联社电报：A股资讯最快，AI 捕捉个股利好神器
+      name: "财联社电报"
+      
+    - id: "wallstreetcn-hot"            # 华尔街见闻：宏观与全球市场
       name: "华尔街见闻"
-    - id: "thepaper"
-      name: "澎湃新闻"
-    - id: "cls-hot"
-      name: "财联社热门"
-    - id: "ifeng"
-      name: "凤凰网"
-    - id: "gelonghui"
+
+    - id: "xueqiu-hot"                  # 雪球：感知散户情绪与小作文
+      name: "雪球热帖"
+
+    - id: "jin10"                       # 金十：外汇/贵金属/美股快讯
+      name: "金十数据"
+
+    - id: "gelonghui"                   # 格隆汇：港美A股深度
       name: "格隆汇"
 
-    - id: "jin10"
-      name: "金十数据"
+    # --- 🔵 科技与产业源 (半导体/AI 持仓必选) ---
+    - id: "36kr-newsflashes"            # 36氪：一级市场与科技前沿
+      name: "36氪快讯"
+
+    # --- 🟡 综合/国际/官方视角 ---
+    - id: "zaobao"                      # 联合早报：优质第三方客观视角
+      name: "联合早报"
+
+    - id: "thepaper"                    # 澎湃：国内时政
+      name: "澎湃新闻"
+      
+    - id: "toutiao"                     # 头条：社会面热度
+      name: "今日头条"
+      
+    - id: "tencent-hot"
+      name: "腾讯新闻 综合早报"
+      
+    - id: "ifeng"
+      name: "凤凰网"
 
     - id: "fastbull"
       name: "快讯通"
@@ -43,29 +65,36 @@ platforms:
     - id: "fastbull-news"
       name: "法布财经 头条"
 
-    - id: "tencent-hot"
-      name: "腾讯新闻 综合早报"
-
 
 # ===============================================================
 # 3. 数据源 - RSS 订阅
 # ===============================================================
 rss:
-  enabled: true                       # 是否启用 RSS 抓取
+  enabled: true                        # 是否启用 RSS 抓取
 
   freshness_filter:
-    enabled: true                     # 是否启用新鲜度过滤（默认启用）
-    max_age_days: 3                   # 最大文章年龄（天）
+    enabled: true                      # 是否启用新鲜度过滤
+    max_age_days: 2                    # 央视新闻更新快，建议设为 2 天
 
   feeds:
+    # --- 🔴 央视新闻 (CCTV) 官方源 ---
+    # 权威定调，AI 分析政策风向的基石
+    - id: "cctv-top"
+      name: "央视新闻-头条"
+      url: "http://news.cctv.com/rss/index.xml"
+
+    - id: "cctv-china"
+      name: "央视新闻-国内"
+      url: "http://news.cctv.com/rss/xml/news/china.xml"
+
+    - id: "cctv-world"
+      name: "央视新闻-国际"
+      url: "http://news.cctv.com/rss/xml/news/world.xml"
+
+    # --- 🔵 技术与外媒补充 ---
     - id: "hacker-news"
       name: "Hacker News"
       url: "https://hnrss.org/frontpage"
-    
-    - id: "yahoo-finance"
-      name: "雅虎财经"
-      url: "https://finance.yahoo.com/news/rssindex"
-      enabled: false                  # 禁用
 
 
 # ===============================================================
@@ -76,12 +105,12 @@ report:
   display_mode: "keyword"
   sort_by_position_first: false
 
-  # 🔴 关键修改 1：把阈值从 5 提高到 20 甚至 30
-  # 逻辑：只有放宽这个口子，排名第 15 的“印度疫情”或“某类大宗商品”才能被抓进来
+  # 🟢 关键配置：放宽阈值
+  # 只有放宽这个口子，排名靠后的垂直领域新闻（如“稀土价格异动”）才能被抓进来
   rank_threshold: 20
 
-  # 🔴 关键修改 2：限制每个板块显示的条数
-  # 逻辑：虽然我们抓了很多，但列表里每个板块最多只显示 3 条，防止刷屏
+  # 🟢 关键配置：限制显示
+  # 列表显示精简，详细信息交给 AI 去读
   max_news_per_keyword: 3
 
 
@@ -91,188 +120,54 @@ report:
 display:
   # 📋 区域显示顺序
   region_order:
-    - new_items                       # 1️⃣ 新增热点区域
-    - hotlist                         # 2️⃣ 热榜区域（关键词匹配）
+    - new_items                       # 1️⃣ 新增热点
+    - hotlist                         # 2️⃣ 热榜区域
+    - rss                             # 3️⃣ RSS 区域 (央视新闻会在这里)
     - standalone                      # 4️⃣ 独立展示区
-    - ai_analysis                     # 5️⃣ AI 分析区域
+    - ai_analysis                     # 5️⃣ AI 分析区域 (重头戏)
 
   # 推送区域开关
   regions:
-    hotlist: true                     # 热榜区域
-    new_items: true                   # 新增热点区域
-    rss: true                         # RSS 订阅区域
-    standalone: false                 # 独立展示区
-    ai_analysis: true                 # AI 分析区域
+    hotlist: true
+    new_items: true
+    rss: true                         # 必须开启，否则央视新闻抓了也不显示
+    standalone: false
+    ai_analysis: true
 
   # 📋 独立展示区配置
   standalone:
-    platforms: []                     # 热榜平台 ID 列表
-    rss_feeds: []                     # RSS 源 ID 列表
-    max_items: 20                     # 每个源最多展示条数
+    platforms: []
+    rss_feeds: []
+    max_items: 20
 
 
 # ===============================================================
 # 6. 推送通知
 # ===============================================================
 notification:
-  enabled: true                       # 是否启用通知功能
+  enabled: true                        # 是否启用通知功能
 
   # 🕐 推送时间窗口控制
+  # ⚠️ 必须设为 false！
+  # 这样你只要在 GitHub Actions 设定了 8点/11点/14点/20点/23点 运行，
+  # 每次运行都会通过，不会因为“不在时间窗口”被拦截。
   push_window:
-    enabled: false                    # 是否启用推送时间窗口控制
-    start: "20:00"                    # 开始时间（北京时间）
-    end: "22:00"                      # 结束时间（北京时间）
-    once_per_day: true                # true=窗口内只推送一次
+    enabled: false                    
+    start: "20:00"
+    end: "22:00"
+    once_per_day: true
 
-  # 推送渠道配置
+  # 推送渠道配置 (请自行填入你的 Token/Webhook)
   channels:
     feishu:
-      webhook_url: ""                 # 飞书机器人 webhook URL
+      webhook_url: ""                 # 飞书机器人
 
     dingtalk:
-      webhook_url: ""                 # 钉钉机器人 webhook URL
+      webhook_url: ""                 # 钉钉机器人
 
     wework:
-      webhook_url: ""                 # 企业微信机器人 webhook URL
-      msg_type: "markdown"            # 消息类型
+      webhook_url: ""                 # 企业微信机器人
+      msg_type: "markdown"
 
     telegram:
       bot_token: "TELEGRAM_BOT_TOKEN"
-      chat_id: "TELEGRAM_CHAT_ID"
-
-    email:
-      from: ""                        # 发件人邮箱地址
-      password: ""                    # 发件人邮箱密码或授权码
-      to: ""                          # 收件人邮箱
-      smtp_server: ""
-      smtp_port: ""
-
-    ntfy:
-      server_url: "https://ntfy.sh"
-      topic: ""
-      token: ""
-
-    bark:
-      url: ""                         # Bark 推送 URL
-
-    slack:
-      webhook_url: ""                 # Slack Incoming Webhook URL
-
-    generic_webhook:
-      webhook_url: ""
-      payload_template: ""
-
-
-# ===============================================================
-# 7. 存储配置
-# ===============================================================
-storage:
-  backend: "auto"
-
-  formats:
-    sqlite: true                      # 主存储（必须启用）
-    txt: false                        # 是否生成 TXT 快照
-    html: true                        # 是否生成 HTML 报告
-
-  local:
-    data_dir: "output"
-    retention_days: 0
-
-  remote:
-    retention_days: 0
-    endpoint_url: ""
-    bucket_name: ""
-    access_key_id: ""
-    secret_access_key: ""
-    region: ""
-
-  pull:
-    enabled: false
-    days: 7
-
-
-# ===============================================================
-# 8. AI 模型配置（共享）
-#
-# ai_analysis 和 ai_translation 共用此模型配置
-# ===============================================================
-ai:
-  # 1. 主力模型：Google Gemini 2.5 Flash
-  # -------------------------------------------------------------
-  model: "gemini/gemini-2.5-flash"
-
-  # 主力模型的 Key
-  # 程序会自动读取环境变量中的 GEMINI_API_KEY
-  api_key: "GEMINI_API_KEY"
-
-  # 2. 备用模型：DeepSeek V3 (关键修改)
-  # -------------------------------------------------------------
-  # 当主力模型报错 (如 429 配额超限) 时，自动切换到 DeepSeek。
-  # 只要你在 GitHub Secrets 设置了 DEEPSEEK_API_KEY，这里不需要填 Key。
-  fallback_models: 
-    - "deepseek/deepseek-chat"
-
-  # 3. 通用参数
-  api_base: ""                      # 留空即可
-  timeout: 120                      # 请求超时（秒）
-  temperature: 1.0                  # 采样温度
-  max_tokens: 5000                  # 最大生成 token 数
-  num_retries: 1                    # 失败重试次数
-
-
-# ===============================================================
-# 9. AI 分析功能
-# ===============================================================
-ai_analysis:
-  enabled: true                     # 是否启用 AI 分析
-  language: "Chinese"
-  prompt_file: "ai_analysis_prompt.txt"
-
-  max_news_for_analysis: 50         # 参与分析的新闻数量上限
-  include_rss: false                # 是否包含 RSS 内容进行分析
-  include_rank_timeline: true       # 是否传递完整排名时间线
-
-
-# ===============================================================
-# 10. AI 翻译功能
-# ===============================================================
-ai_translation:
-  enabled: false                    # 是否启用翻译功能
-  language: "English"
-  prompt_file: "ai_translation_prompt.txt"
-
-
-# ===============================================================
-# 11. 高级设置（一般无需修改）
-# ===============================================================
-advanced:
-  debug: false
-  version_check_url: "https://raw.githubusercontent.com/sansan0/TrendRadar/refs/heads/master/version"
-  mcp_version_check_url: "https://raw.githubusercontent.com/sansan0/TrendRadar/refs/heads/master/version_mcp"
-
-  crawler:
-    request_interval: 2000
-    use_proxy: false
-    default_proxy: "http://127.0.0.1:10801"
-
-  rss:
-    request_interval: 1000
-    timeout: 15
-    use_proxy: false
-    proxy_url: ""
-
-  weight:
-    rank: 0.6
-    frequency: 0.3
-    hotness: 0.1
-
-  max_accounts_per_channel: 3
-
-  batch_size:
-    default: 4000
-    dingtalk: 20000
-    feishu: 30000
-    bark: 4000
-    slack: 4000
-  batch_send_interval: 3
-  feishu_message_separator: "━━━━━━━━━━━━━━━━━━━"
