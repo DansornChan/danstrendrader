@@ -45,19 +45,25 @@ from trendradar.notification.senders import (
 )
 from trendradar.notification.dispatcher import NotificationDispatcher
 
-# ---- renderer 模块兼容导入 ----
+# ---- renderer 兼容导入 ----
+# NotificationRenderer 类是唯一的渲染入口
 try:
-    from trendradar.notification.renderer import render_feishu_content
+    from trendradar.notification.renderer import NotificationRenderer
 except ImportError:
-    # 如果 renderer.py 没有 render_feishu_content，定义一个占位函数
-    def render_feishu_content(*args, **kwargs):
-        return None
+    NotificationRenderer = None
 
-try:
-    from trendradar.notification.renderer import render_dingtalk_content
-except ImportError:
-    def render_dingtalk_content(*args, **kwargs):
-        return None
+# 为兼容旧版导入定义安全占位函数
+def render_feishu_content(*args, **kwargs):
+    if NotificationRenderer:
+        renderer = NotificationRenderer(report_type=kwargs.get("report_type", "daily"))
+        return renderer.render(*args, **kwargs)
+    return {}
+
+def render_dingtalk_content(*args, **kwargs):
+    if NotificationRenderer:
+        renderer = NotificationRenderer(report_type=kwargs.get("report_type", "daily"))
+        return renderer.render(*args, **kwargs)
+    return {}
 
 __all__ = [
     # 推送记录管理
@@ -73,6 +79,7 @@ __all__ = [
     # 内容渲染
     "render_feishu_content",
     "render_dingtalk_content",
+    "NotificationRenderer",
     # 消息分批
     "split_content_into_batches",
     "DEFAULT_BATCH_SIZES",
