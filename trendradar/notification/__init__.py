@@ -17,6 +17,9 @@
 - dispatcher: 多账号通知调度器
 """
 
+# --------------------------
+# 基础模块导入
+# --------------------------
 from trendradar.notification.push_manager import PushRecordManager
 from trendradar.notification.formatters import (
     strip_markdown,
@@ -27,10 +30,6 @@ from trendradar.notification.batch import (
     get_max_batch_header_size,
     truncate_to_bytes,
     add_batch_headers,
-)
-from trendradar.notification.splitter import (
-    split_content_into_batches,
-    DEFAULT_BATCH_SIZES,
 )
 from trendradar.notification.senders import (
     send_to_feishu,
@@ -45,14 +44,14 @@ from trendradar.notification.senders import (
 )
 from trendradar.notification.dispatcher import NotificationDispatcher
 
-# ---- renderer 兼容导入 ----
-# NotificationRenderer 类是唯一的渲染入口
+# --------------------------
+# renderer 兼容导入
+# --------------------------
 try:
     from trendradar.notification.renderer import NotificationRenderer
 except ImportError:
     NotificationRenderer = None
 
-# 为兼容旧版导入定义安全占位函数
 def render_feishu_content(*args, **kwargs):
     if NotificationRenderer:
         renderer = NotificationRenderer(report_type=kwargs.get("report_type", "daily"))
@@ -65,6 +64,23 @@ def render_dingtalk_content(*args, **kwargs):
         return renderer.render(*args, **kwargs)
     return {}
 
+# --------------------------
+# splitter 兼容导入
+# --------------------------
+try:
+    from trendradar.notification.splitter import split_content_into_batches
+except ImportError:
+    def split_content_into_batches(*args, **kwargs):
+        return []
+
+try:
+    from trendradar.notification.splitter import DEFAULT_BATCH_SIZES
+except ImportError:
+    DEFAULT_BATCH_SIZES = {}
+
+# --------------------------
+# __all__ 列表
+# --------------------------
 __all__ = [
     # 推送记录管理
     "PushRecordManager",
