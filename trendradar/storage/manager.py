@@ -1,7 +1,7 @@
 # coding=utf-8
 import os
 import logging
-from typing import Optional
+from typing import Optional, Dict
 
 from trendradar.storage.local import LocalStorageBackend
 
@@ -34,6 +34,7 @@ class StorageManager:
 
     - 负责选择 backend
     - 统一对外暴露存储接口
+    - 【新增】自动从环境变量加载缺失的配置
     """
 
     def __init__(
@@ -53,7 +54,16 @@ class StorageManager:
         self.data_dir = data_dir
         self.enable_txt = enable_txt
         self.enable_html = enable_html
+        
+        # --------------------------------------------------------------
+        # 智能配置加载逻辑
+        # --------------------------------------------------------------
+        # 如果上层传入了配置，就用上层的；
+        # 如果没传（None或空字典），自动尝试从环境变量读取。
         self.remote_config = remote_config or {}
+        if not self.remote_config:
+            self.remote_config = self._load_config_from_env()
+
         self.local_retention_days = local_retention_days
         self.remote_retention_days = remote_retention_days
         self.pull_enabled = pull_enabled
@@ -62,6 +72,36 @@ class StorageManager:
 
         self.backend_name: str = "unknown"
         self._backend = None
+
+    # ------------------------------------------------------------------
+    # 辅助：从环境变量构建配置
+    # ------------------------------------------------------------------
+
+    def _load_config_from_env(self) -> Dict[str, str]:
+        """
+        当 remote_config 为空时，尝试从系统环境变量自动补全
+        支持 S3_前缀, R2_前缀 等常见命名
+        """
+        config = {}
+        
+        # 定义需要查找的字段及其对应的环境变量候选项
+        env_mapping = {
+            "ENDPOINT_URL": ["S3_ENDPOINT_URL", "R2_ENDPOINT_URL", "STORAGE_ENDPOINT"],
+            "BUCKET_NAME": ["S3_BUCKET_NAME", "R2_BUCKET_NAME", "STORAGE_BUCKET"],
+            "ACCESS_KEY_ID": ["S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"],
+            "SECRET_ACCESS_KEY": ["S3_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"],
+            "PREFIX": ["S3_PREFIX", "R2_PREFIX", "STORAGE_PREFIX"],
+            "RETENTION_DAYS": ["S3_RETENTION_DAYS", "R2_RETENTION_DAYS", "RETENTION_DAYS"]
+        }
+
+        for config_key, env_candidates in env_mapping.items():
+            for env_var in env_candidates:
+                val = os.getenv(env_var)
+                if val:
+                    config[config_key] = val
+                    break  # 找到一个就停止
+        
+        return config
 
     # ------------------------------------------------------------------
     # 环境判断
@@ -77,51 +117,42 @@ class StorageManager:
     def _select_backend(self):
         backend_type = (self.backend_type or "auto").lower()
 
+        # 构造通用参数，避免重复代码
+        # 注意：**kwargs 会传递给后端 __init__，所以后端必须支持这些参数或接收 **kwargs
+        common_kwargs = {
+            "config": self.remote_config,
+            "retention_days": self.remote_retention_days,
+            # 下面这些参数如果 R2 后端还没实现接收，会被 R2 的 **kwargs 吃掉，不会报错
+            "pull_enabled": self.pull_enabled,
+            "pull_days": self.pull_days,
+            "timezone": self.timezone,
+        }
+
         if backend_type == "r2":
             if not HAS_R2:
-                raise RuntimeError("R2StorageBackend 不可用")
+                raise RuntimeError("R2StorageBackend 不可用 (缺少依赖或文件)")
             self.backend_name = "r2"
-            return R2StorageBackend(
-                config=self.remote_config,
-                retention_days=self.remote_retention_days,
-                pull_enabled=self.pull_enabled,
-                pull_days=self.pull_days,
-                timezone=self.timezone,
-            )
+            return R2StorageBackend(**common_kwargs)
 
         if backend_type == "remote":
             if not HAS_REMOTE:
                 raise RuntimeError("RemoteStorageBackend 不可用")
             self.backend_name = "remote"
-            return RemoteStorageBackend(
-                config=self.remote_config,
-                retention_days=self.remote_retention_days,
-                pull_enabled=self.pull_enabled,
-                pull_days=self.pull_days,
-                timezone=self.timezone,
-            )
+            return RemoteStorageBackend(**common_kwargs)
 
         if backend_type == "auto":
             if self._is_github_actions():
-                if HAS_R2:
+                # 优先尝试 R2
+                if HAS_R2 and self._has_valid_remote_config():
                     self.backend_name = "r2"
-                    return R2StorageBackend(
-                        config=self.remote_config,
-                        retention_days=self.remote_retention_days,
-                        pull_enabled=self.pull_enabled,
-                        pull_days=self.pull_days,
-                        timezone=self.timezone,
-                    )
-                if HAS_REMOTE:
+                    return R2StorageBackend(**common_kwargs)
+                
+                # 其次尝试通用 Remote
+                if HAS_REMOTE and self._has_valid_remote_config():
                     self.backend_name = "remote"
-                    return RemoteStorageBackend(
-                        config=self.remote_config,
-                        retention_days=self.remote_retention_days,
-                        pull_enabled=self.pull_enabled,
-                        pull_days=self.pull_days,
-                        timezone=self.timezone,
-                    )
+                    return RemoteStorageBackend(**common_kwargs)
 
+            # 默认 fallback 到本地
             self.backend_name = "local"
             return LocalStorageBackend(
                 data_dir=self.data_dir,
@@ -132,6 +163,12 @@ class StorageManager:
             )
 
         raise ValueError(f"未知 backend_type: {backend_type}")
+    
+    def _has_valid_remote_config(self) -> bool:
+        """简单的预检查：配置是否看起来可用"""
+        # 至少要有 Endpoint 和 Bucket
+        return bool(self.remote_config.get("ENDPOINT_URL") or self.remote_config.get("S3_ENDPOINT_URL")) \
+           and bool(self.remote_config.get("BUCKET_NAME") or self.remote_config.get("S3_BUCKET_NAME"))
 
     # ------------------------------------------------------------------
     # Backend 懒加载
@@ -145,7 +182,7 @@ class StorageManager:
         return self._backend
 
     # ------------------------------------------------------------------
-    # 🔥 关键：方法代理（Facade 核心）
+    # 方法代理 (Facade)
     # ------------------------------------------------------------------
 
     def save_news_data(self, *args, **kwargs):
@@ -157,11 +194,9 @@ class StorageManager:
     def pull_recent_data(self, *args, **kwargs):
         if hasattr(self.backend, "pull_recent_data"):
             return self.backend.pull_recent_data(*args, **kwargs)
+        return None
 
     def __getattr__(self, item):
-        """
-        兜底代理：backend 有的方法，manager 自动透传
-        """
         backend = object.__getattribute__(self, "backend")
         if hasattr(backend, item):
             return getattr(backend, item)
