@@ -22,22 +22,32 @@ class NotificationRenderer:
         self.report_type = report_type
         self.mode = mode
         self.account_label = account_label
-        self.now = get_time_func() if get_time_func else datetime.now()
-
+        self.now = get_time_func() if get_time_func else datetime.    # =========================
+    # 对外唯一入口（已修复参数接收问题）
     # =========================
-    # 对外唯一入口
-    # =========================
-    def render(
-        self,
-        report_data: Dict[str, Any],
-        ai_analysis: Any = None,
-        portfolio: List[Dict] = None,
-        history_summary: Dict[str, Any] = None,
-    ) -> Dict[str, str]:
+    def render(self, input_data: Dict[str, Any]) -> Dict[str, str]:
         """
-        返回结构化文本块，供 splitter 使用
+        Input:
+            input_data: 也就是 Dispatcher 传进来的 analysis_result
+                        它可能直接是新闻数据，也可能是一个包含所有信息的字典。
         """
+        
+        # 1. 尝试解包数据 (假设 input_data 是一个包含所有信息的“大字典”)
+        # 如果 input_data 里有 "report_data" 这个 key，说明它是封装好的
+        if isinstance(input_data, dict) and "report_data" in input_data:
+            report_data = input_data.get("report_data", {})
+            ai_analysis = input_data.get("ai_analysis")
+            portfolio = input_data.get("portfolio")
+            history_summary = input_data.get("history_summary")
+        else:
+            # 2. 兼容模式 (假设 input_data 本身就是 report_data)
+            # 这种情况会导致 AI 分析等内容无法显示，但至少新闻能出来
+            report_data = input_data
+            ai_analysis = None
+            portfolio = None
+            history_summary = None
 
+        # 3. 开始渲染
         hot_topics = self._render_hot_topics(report_data)
         ai_block = self._render_ai_analysis(ai_analysis)
         portfolio_block = self._render_portfolio_impact(portfolio, report_data)
@@ -61,11 +71,11 @@ class NotificationRenderer:
         }
 
     # =========================
-    # ① 分领域重点新闻
+    # ① 分领域重点新闻（已修复标题获取问题）
     # =========================
     def _render_hot_topics(self, report_data: Dict[str, Any]) -> str:
         if not report_data:
-            return ""
+            return "⚠️ 无热点数据"
 
         lines = [
             f"🔥 **分领域重点新闻**",
@@ -73,7 +83,10 @@ class NotificationRenderer:
             ""
         ]
 
-        for sector, items in report_data.items():
+        # 过滤掉非字典或列表的异常数据
+        valid_sectors = {k: v for k, v in report_data.items() if isinstance(v, list)}
+
+        for sector, items in valid_sectors.items():
             if not items:
                 continue
 
@@ -81,9 +94,22 @@ class NotificationRenderer:
             freq_map = {}
 
             for item in items:
-                title = item.get("title", "")
+                # --- 修复核心：尝试多种可能的键名 ---
+                # 你的数据里可能不叫 title，可能叫 content, text, header, link 等
+                title = (
+                    item.get("title") or 
+                    item.get("content") or 
+                    item.get("text") or 
+                    item.get("url") or 
+                    "未知标题"
+                )
+                # 截断过长的标题，防止刷屏
+                if len(str(title)) > 50:
+                    title = str(title)[:50] + "..."
+                
                 freq_map[title] = freq_map.get(title, 0) + 1
 
+            # 按频率降序排列
             for title, freq in sorted(freq_map.items(), key=lambda x: -x[1]):
                 suffix = f"（出现 {freq} 次）" if freq > 1 else ""
                 lines.append(f"- {title}{suffix}")
