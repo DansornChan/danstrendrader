@@ -1029,7 +1029,22 @@ class NewsAnalyzer:
                 dummy_result = AIAnalysisResult(success=True, core_trends="无重大市场异动")
                 self._export_json_for_stock_analysis(dummy_result)
             # =======================================
-
+            # === 保存趋势历史到 R2（不影响主流程） ===
+            try:
+                trend_summary = []
+            
+                for item in industry_analysis:  # 你已有的 AI 行业结果
+                    trend_summary.append({
+                        "name": item.get("industry"),
+                        "intensity": item.get("level"),
+                        "reason": item.get("summary", "")[:120]
+                    })
+            
+                storage_manager.r2.save_daily_trends(trend_summary)
+            
+            except Exception as e:
+                logger.warning(f"[R2] 趋势历史保存失败: {e}")
+            
             # 发送通知
             if mode_strategy["should_send_notification"]:
                 self._send_notification_if_needed(
