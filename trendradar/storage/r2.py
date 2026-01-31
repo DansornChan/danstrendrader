@@ -4,12 +4,12 @@ Cloudflare R2 Storage Backend for TrendRadar
 """
 
 import json
-import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
 import boto3
 from botocore.client import Config
+from botocore.exceptions import ClientError
 
 from trendradar.storage.base import StorageBackend
 
@@ -57,28 +57,137 @@ class R2StorageBackend(StorageBackend):
 
     def _today(self) -> str:
         return datetime.utcnow().strftime("%Y-%m-%d")
-    
-    def _yesterday(self) -> str:
-        return (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    def _exists(self, key: str) -> bool:
+        """检查文件是否存在"""
+        try:
+            self.s3.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except ClientError:
+            return False
 
     # ------------------------------------------------------------------
-    # 新闻数据
+    # StorageBackend 必须实现的接口
     # ------------------------------------------------------------------
+
+    @property
+    def supports_txt(self) -> bool:
+        """R2 支持文本存储"""
+        return True
 
     def save_news_data(self, news_data: Dict) -> bool:
-        """
-        保存爬虫新闻数据（每天一份）
-        """
+        """保存爬虫新闻数据（每天一份）"""
         date = news_data.get("date") or self._today()
         key = self._key("news", f"{date}.json")
+        return self._save_json(key, news_data)
 
-        self.s3.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=json.dumps(news_data, ensure_ascii=False).encode("utf-8"),
-            ContentType="application/json",
-        )
-        return True
+    def get_latest_crawl_data(self) -> Optional[Dict]:
+        """获取今天最新的爬取数据"""
+        return self.load_news_by_date(self._today())
+        
+    def get_today_all_data(self) -> Optional[Dict]:
+        """同上，获取今日数据"""
+        return self.load_news_by_date(self._today())
+
+    def is_first_crawl_today(self) -> bool:
+        """检查今天是否是第一次爬取（通过检查今日数据文件是否存在）"""
+        key = self._key("news", f"{self._today()}.json")
+        return not self._exists(key)
+
+    def detect_new_titles(self, current_titles: List[str]) -> List[str]:
+        """
+        对比已有数据，找出新标题。
+        如果没有旧数据，则所有标题都视为新标题。
+        """
+        old_data = self.load_news_by_date(self._today())
+        if not old_data:
+            return current_titles
+        
+        # 假设 old_data 结构中有 titles 或 items 字段，这里做个通用处理
+        # 实际需根据你的 news_data 结构调整
+        old_titles = set()
+        if "data" in old_data and isinstance(old_data["data"], dict):
+            # 遍历所有源
+            for source, items in old_data["data"].items():
+                for item in items:
+                    if isinstance(item, dict) and "title" in item:
+                        old_titles.add(item["title"])
+                        
+        new_items = [t for t in current_titles if t not in old_titles]
+        return new_items
+
+    def save_html_report(self, date: str, html_content: str) -> bool:
+        """保存 HTML 报告"""
+        key = self._key("reports", f"{date}.html")
+        try:
+            self.s3.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=html_content.encode("utf-8"),
+                ContentType="text/html",
+            )
+            return True
+        except Exception as e:
+            print(f"R2 save_html_report failed: {e}")
+            return False
+
+    def save_txt_snapshot(self, date: str, txt_content: str) -> bool:
+        """保存文本快照"""
+        key = self._key("snapshots", f"{date}.txt")
+        try:
+            self.s3.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=txt_content.encode("utf-8"),
+                ContentType="text/plain",
+            )
+            return True
+        except Exception as e:
+            print(f"R2 save_txt_snapshot failed: {e}")
+            return False
+
+    # --- 推送记录相关 ---
+
+    def has_pushed_today(self) -> bool:
+        """检查今天是否已经执行过推送"""
+        key = self._key("pushed_flags", f"{self._today()}.json")
+        return self._exists(key)
+
+    def record_push(self, status: str = "success") -> bool:
+        """记录今天已推送"""
+        key = self._key("pushed_flags", f"{self._today()}.json")
+        data = {
+            "pushed_at": datetime.utcnow().isoformat(),
+            "status": status
+        }
+        return self._save_json(key, data)
+
+    # --- 清理相关 ---
+
+    def cleanup(self) -> None:
+        """清理入口"""
+        self.apply_retention()
+
+    def cleanup_old_data(self) -> None:
+        """清理旧数据的别名"""
+        self.apply_retention()
+
+    # ------------------------------------------------------------------
+    # 内部/辅助方法 (复用及实现细节)
+    # ------------------------------------------------------------------
+
+    def _save_json(self, key: str, data: Any) -> bool:
+        try:
+            self.s3.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                ContentType="application/json",
+            )
+            return True
+        except Exception as e:
+            print(f"R2 save error ({key}): {e}")
+            return False
 
     def load_news_by_date(self, date: str) -> Optional[Dict]:
         key = self._key("news", f"{date}.json")
@@ -88,29 +197,14 @@ class R2StorageBackend(StorageBackend):
         except Exception:
             return None
 
-    # ------------------------------------------------------------------
-    # AI 分析结果
-    # ------------------------------------------------------------------
-
     def save_ai_result(self, date: str, ai_result: Dict) -> bool:
-        """
-        保存 AI 分析结果（结构化 or 文本）
-        """
         key = self._key("ai", f"{date}.json")
-
         payload = {
             "date": date,
             "saved_at": datetime.utcnow().isoformat(),
             "result": ai_result,
         }
-
-        self.s3.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            ContentType="application/json",
-        )
-        return True
+        return self._save_json(key, payload)
 
     def load_ai_result(self, date: str) -> Optional[Dict]:
         key = self._key("ai", f"{date}.json")
@@ -120,186 +214,42 @@ class R2StorageBackend(StorageBackend):
         except Exception:
             return None
 
-    # ------------------------------------------------------------------
-    # 历史 & retention
-    # ------------------------------------------------------------------
-
     def list_dates(self, category: str) -> List[str]:
-        """
-        category: news / ai
-        """
         prefix = self._key(category)
         paginator = self.s3.get_paginator("list_objects_v2")
-
         dates = []
-        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
-            for obj in page.get("Contents", []):
-                name = obj["Key"].split("/")[-1]
-                if name.endswith(".json"):
-                    dates.append(name.replace(".json", ""))
-
-        return sorted(set(dates))
+        # 处理分页，以防文件过多
+        try:
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+                for obj in page.get("Contents", []):
+                    # 获取文件名并去掉扩展名
+                    name = obj["Key"].split("/")[-1]
+                    if name.endswith(".json"):
+                        dates.append(name.replace(".json", ""))
+            return sorted(set(dates))
+        except Exception:
+            return []
 
     def apply_retention(self) -> None:
-        """
-        根据 RETENTION_DAYS 自动清理旧数据
-        """
         if self.retention_days <= 0:
             return
-
+        
         cutoff = datetime.utcnow() - timedelta(days=self.retention_days)
-
         paginator = self.s3.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix):
-            for obj in page.get("Contents", []):
-                if obj["LastModified"].replace(tzinfo=None) < cutoff:
-                    self.s3.delete_object(
-                        Bucket=self.bucket,
-                        Key=obj["Key"],
-                    )
-
-    # ------------------------------------------------------------------
-    # 新实现的抽象方法
-    # ------------------------------------------------------------------
-
-    def cleanup(self) -> bool:
-        """
-        清理临时数据或过期数据
-        """
+        
         try:
-            self.apply_retention()
-            return True
-        except Exception:
-            return False
+            # 遍历整个 prefix 下的文件
+            for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix):
+                for obj in page.get("Contents", []):
+                    # 检查 LastModified
+                    if obj["LastModified"].replace(tzinfo=None) < cutoff:
+                        print(f"Removing old file: {obj['Key']}")
+                        self.s3.delete_object(Bucket=self.bucket, Key=obj['Key'])
+        except Exception as e:
+            print(f"Retention cleanup failed: {e}")
 
-    def cleanup_old_data(self) -> bool:
-        """
-        清理旧数据
-        """
-        return self.cleanup()
-
-    def detect_new_titles(self, current_titles: List[str], source: str = "") -> List[str]:
-        """
-        检测新标题
-        """
-        # 获取昨天的数据进行比较
-        yesterday_data = self.load_news_by_date(self._yesterday())
-        if not yesterday_data:
-            return current_titles  # 如果没有昨天数据，所有都是新的
-        
-        # 提取昨天的标题
-        yesterday_titles = []
-        for item in yesterday_data.get("data", []):
-            if isinstance(item, dict) and "title" in item:
-                yesterday_titles.append(item["title"])
-        
-        # 找出不在昨天标题中的新标题
-        new_titles = [title for title in current_titles if title not in yesterday_titles]
-        return new_titles
-
-    def get_latest_crawl_data(self) -> Optional[Dict]:
-        """
-        获取最新的爬虫数据
-        """
-        # 获取所有日期
-        dates = self.list_dates("news")
-        if not dates:
-            return None
-        
-        # 返回最新日期的数据
-        latest_date = dates[-1]
-        return self.load_news_by_date(latest_date)
-
-    def get_today_all_data(self) -> Optional[Dict]:
-        """
-        获取今天的所有数据
-        """
-        return self.load_news_by_date(self._today())
-
-    def has_pushed_today(self) -> bool:
-        """
-        检查今天是否已经推送过
-        """
-        # 检查是否存在推送记录文件
-        push_key = self._key("push", f"{self._today()}.json")
-        try:
-            self.s3.head_object(Bucket=self.bucket, Key=push_key)
-            return True
-        except Exception:
-            return False
-
-    def is_first_crawl_today(self) -> bool:
-        """
-        检查是否是今天的第一次爬取
-        """
-        # 检查今天是否已经有数据文件
-        news_key = self._key("news", f"{self._today()}.json")
-        try:
-            self.s3.head_object(Bucket=self.bucket, Key=news_key)
-            return False  # 文件存在，不是第一次
-        except Exception:
-            return True  # 文件不存在，是第一次
-
-    def record_push(self, push_data: Dict) -> bool:
-        """
-        记录推送信息
-        """
-        date = push_data.get("date", self._today())
-        key = self._key("push", f"{date}.json")
-        
-        # 添加时间戳
-        push_data["pushed_at"] = datetime.utcnow().isoformat()
-        
-        self.s3.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=json.dumps(push_data, ensure_ascii=False).encode("utf-8"),
-            ContentType="application/json",
-        )
-        return True
-
-    def save_html_report(self, html_content: str, filename: str) -> bool:
-        """
-        保存HTML报告
-        """
-        key = self._key("reports", filename)
-        
-        self.s3.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=html_content.encode("utf-8"),
-            ContentType="text/html",
-        )
-        return True
-
-    def save_txt_snapshot(self, txt_content: str, filename: str) -> bool:
-        """
-        保存文本快照
-        """
-        key = self._key("snapshots", filename)
-        
-        self.s3.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=txt_content.encode("utf-8"),
-            ContentType="text/plain",
-        )
-        return True
-
-    def supports_txt(self) -> bool:
-        """
-        是否支持文本快照
-        """
-        return True
-
-    # ------------------------------------------------------------------
-    # StorageBackend 接口兼容
-    # ------------------------------------------------------------------
-
+    # RSS 兼容 (可保持为空或简单实现)
     def save_rss_data(self, rss_data) -> bool:
-        """
-        RSS 数据目前不强制持久化，可按需扩展
-        """
         return True
 
     def detect_new_rss_items(self, rss_data):
