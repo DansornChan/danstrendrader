@@ -22,21 +22,12 @@ class NotificationRenderer:
         self.report_type = report_type
         self.mode = mode
         self.account_label = account_label
-        # ✅ 修复点：补全了 datetime.now()
         self.now = get_time_func() if get_time_func else datetime.now()
 
     # =========================
-    # 对外唯一入口（已修复参数接收问题）
+    # 对外唯一入口
     # =========================
     def render(self, input_data: Dict[str, Any]) -> Dict[str, str]:
-        """
-        Input:
-            input_data: 也就是 Dispatcher 传进来的 analysis_result
-                        它可能直接是新闻数据，也可能是一个包含所有信息的字典。
-        """
-        
-        # 1. 尝试解包数据 (假设 input_data 是一个包含所有信息的"大字典")
-        # 如果 input_data 里有 "report_data" 这个 key，说明它是封装好的
         if isinstance(input_data, dict) and "report_data" in input_data:
             report_data = input_data.get("report_data", {})
             ai_analysis = input_data.get("ai_analysis")
@@ -45,8 +36,6 @@ class NotificationRenderer:
             rss_items = input_data.get("rss_items", [])
             standalone_data = input_data.get("standalone_data")
         else:
-            # 2. 兼容模式 (假设 input_data 本身就是 report_data)
-            # 这种情况会导致 AI 分析等内容无法显示，但至少新闻能出来
             report_data = input_data
             ai_analysis = None
             portfolio = None
@@ -54,7 +43,7 @@ class NotificationRenderer:
             rss_items = []
             standalone_data = None
 
-        # 3. 开始渲染各个模块
+        # 渲染各个模块
         hot_topics = self._render_hot_topics(report_data)
         rss_block = self._render_rss_items(rss_items)
         standalone_block = self._render_standalone_data(standalone_data)
@@ -62,7 +51,7 @@ class NotificationRenderer:
         portfolio_block = self._render_portfolio_impact(portfolio, report_data)
         trend_block = self._render_trend_compare(history_summary, ai_analysis)
 
-        # 4. 拼装完整文本
+        # 拼装完整文本
         full_text = "\n\n".join(
             block for block in [
                 hot_topics,
@@ -85,13 +74,12 @@ class NotificationRenderer:
         }
 
     # =========================
-    # ① 分领域重点新闻（修复计数显示问题）
+    # ① 分领域重点新闻
     # =========================
     def _render_hot_topics(self, report_data: Dict[str, Any]) -> str:
         if not report_data:
             return ""
 
-        # 检查数据结构
         if 'stats' not in report_data or not isinstance(report_data['stats'], list):
             return ""
 
@@ -109,25 +97,21 @@ class NotificationRenderer:
         
         for stat in stats:
             word = stat.get('word', '未命名')
-            count = stat.get('count', 0)  # 原始出现次数
+            count = stat.get('count', 0)
             titles = stat.get('titles', [])
             
             if not titles:
                 continue
                 
-            # 实际显示的标题数量（去重后）
             display_count = len(titles)
             total_display_count += display_count
             
-            # 显示关键词和实际显示条数
             if count != display_count:
                 lines.append(f"【{word}】（{display_count}条/原始{count}条）")
             else:
                 lines.append(f"【{word}】（{display_count}条）")
             
-            # 处理每个标题
             for title_item in titles:
-                # 从标题项中提取标题
                 if isinstance(title_item, dict):
                     title = title_item.get('title') or title_item.get('content') or "无标题"
                     source = title_item.get('source_name', '')
@@ -135,32 +119,24 @@ class NotificationRenderer:
                     ranks = title_item.get('ranks', [])
                     is_new = title_item.get('is_new', False)
                     
-                    # 构建显示文本
-                    display_parts = []
-                    
-                    # 标题
                     if len(title) > 60:
                         title_display = title[:57] + "..."
                     else:
                         title_display = title
                     
-                    # 来源和时间
+                    display_parts = []
                     if source:
                         display_parts.append(f"{source}")
                     if time_display:
                         display_parts.append(f"{time_display}")
                     
-                    # 排名
                     if ranks:
-                        # 显示最新排名
                         last_rank = ranks[-1] if isinstance(ranks, list) and ranks else ranks
                         display_parts.append(f"第{last_rank}位")
                     
-                    # 是否为新标题
                     if is_new:
                         display_parts.append("🆕")
                     
-                    # 组装
                     if display_parts:
                         info_str = "（" + " | ".join(display_parts) + "）"
                     else:
@@ -168,7 +144,6 @@ class NotificationRenderer:
                     
                     lines.append(f"  - {title_display}{info_str}")
                 else:
-                    # 如果标题项不是字典，直接显示
                     title_str = str(title_item)
                     if len(title_str) > 60:
                         title_str = title_str[:57] + "..."
@@ -179,7 +154,6 @@ class NotificationRenderer:
         if total_display_count == 0:
             return ""
             
-        # 添加统计总结
         lines.insert(2, f"总计：{total_display_count}条重点新闻")
         
         return "\n".join(lines).strip()
@@ -214,11 +188,9 @@ class NotificationRenderer:
                     feed_name = title_item.get('feed_name', '')
                     published_at = title_item.get('published_at', '')
                     
-                    # 截断标题
                     if len(title) > 60:
                         title = title[:57] + "..."
                     
-                    # 组装信息
                     info_parts = []
                     if feed_name:
                         info_parts.append(feed_name)
@@ -239,7 +211,6 @@ class NotificationRenderer:
         if total_display_count == 0:
             return ""
             
-        # 添加统计总结
         lines.insert(1, f"总计：{total_display_count}条RSS新闻")
         
         return "\n".join(lines).strip()
@@ -253,7 +224,6 @@ class NotificationRenderer:
 
         lines = ["🏆 **独立展示区**", ""]
 
-        # 热榜平台
         if 'platforms' in standalone_data and standalone_data['platforms']:
             lines.append("🔥 热门平台榜单：")
             for platform in standalone_data['platforms']:
@@ -262,17 +232,15 @@ class NotificationRenderer:
                 
                 if items:
                     lines.append(f"\n【{platform_name}】")
-                    for item in items[:5]:  # 只显示前5条
+                    for item in items[:5]:
                         title = item.get('title', '')
                         rank = item.get('rank', '')
                         if title and rank:
-                            # 截断标题
                             if len(title) > 50:
                                 title = title[:47] + "..."
                             lines.append(f"  {rank}. {title}")
             lines.append("")
 
-        # RSS源
         if 'rss_feeds' in standalone_data and standalone_data['rss_feeds']:
             lines.append("📰 精选RSS源：")
             for rss_feed in standalone_data['rss_feeds']:
@@ -281,11 +249,10 @@ class NotificationRenderer:
                 
                 if items:
                     lines.append(f"\n【{feed_name}】")
-                    for item in items[:3]:  # 只显示前3条
+                    for item in items[:3]:
                         title = item.get('title', '')
                         published_at = item.get('published_at', '')
                         if title:
-                            # 截断标题
                             if len(title) > 60:
                                 title = title[:57] + "..."
                             if published_at:
@@ -305,17 +272,38 @@ class NotificationRenderer:
 
         lines = []
         
-        # 核心趋势 - 只添加一次标题
-        if getattr(ai_analysis, "core_trends", None):
-            # 移除可能已包含的标题
-            core_trends = ai_analysis.core_trends.strip()
-            # 如果core_trends已经包含"AI综合研判"之类的标题，移除它
-            lines.extend([
-                "🧠 **AI 综合研判**",
-                "",
-                core_trends,
-                ""
-            ])
+        # 获取 core_trends
+        core_trends = getattr(ai_analysis, "core_trends", "")
+        if not core_trends:
+            return ""
+        
+        # 清理core_trends中可能已有的标题
+        cleaned_core_trends = core_trends.strip()
+        
+        # 移除常见的AI标题前缀
+        title_prefixes = [
+            "🤖 AI 综合研判",
+            "🧠 AI 综合研判", 
+            "AI 综合研判",
+            "【AI分析】",
+            "【AI研判】",
+            "热度定性：",
+            "整体热度："
+        ]
+        
+        for prefix in title_prefixes:
+            if cleaned_core_trends.startswith(prefix):
+                cleaned_core_trends = cleaned_core_trends[len(prefix):].strip()
+                if cleaned_core_trends.startswith("："):
+                    cleaned_core_trends = cleaned_core_trends[1:].strip()
+        
+        # 添加AI标题（只在renderer中添加一次）
+        lines.extend([
+            "🧠 **AI 综合研判**",
+            "",
+            cleaned_core_trends,
+            ""
+        ])
 
         # 产业分析
         if getattr(ai_analysis, "industry_analysis", None):
@@ -331,7 +319,6 @@ class NotificationRenderer:
                     'Neutral': '➡️'
                 }.get(sentiment, '➡️')
                 
-                # 截断过长的摘要
                 if len(summary) > 100:
                     summary = summary[:97] + "..."
                     
@@ -339,10 +326,11 @@ class NotificationRenderer:
             lines.append("")
 
         # 结论判断
-        if getattr(ai_analysis, "conclusion", None):
+        conclusion = getattr(ai_analysis, "conclusion", "")
+        if conclusion:
             lines.extend([
                 "📌 **结论判断**",
-                ai_analysis.conclusion.strip(),
+                conclusion.strip(),
                 ""
             ])
 
@@ -368,14 +356,12 @@ class NotificationRenderer:
 
             lines.append(f"🔹 **{name}（{code}）**")
             
-            # 尝试在 report_data 中找到对应关键词的新闻
             if 'stats' in report_data and isinstance(report_data['stats'], list):
                 for stat in report_data['stats']:
                     word = stat.get('word', '')
-                    # 简单的关键词匹配逻辑（实际可能需要更复杂的匹配）
                     if sector and sector.lower() in word.lower():
                         titles = stat.get('titles', [])
-                        for i, title_item in enumerate(titles[:2]):  # 只显示前2条
+                        for i, title_item in enumerate(titles[:2]):
                             if isinstance(title_item, dict):
                                 title = title_item.get('title', '相关动态')
                                 if len(title) > 40:
