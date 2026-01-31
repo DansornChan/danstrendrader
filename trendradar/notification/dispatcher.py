@@ -1,29 +1,49 @@
-# coding=utf-8 ＇
+# coding=utf-8
 """
-通知分发调度器（Dispatcher）
+极简 NotificationDispatcher
+只负责：把 TrendRadar 生成的文本推送到 Telegram
+"""
 
-兼容旧版 / 新版 TrendRadar 的调用方式
-"""
+import os
+from trendradar.notification.senders import TelegramSender
+
 
 class NotificationDispatcher:
     def __init__(self, *args, **kwargs):
-        """
-        兼容：
-        - NotificationDispatcher()
-        - NotificationDispatcher(config=xxx)
-        """
-        self.config = kwargs.get("config", {}) or {}
+        self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        self.chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
-    def dispatch(self, *args, **kwargs):
+        if not self.bot_token or not self.chat_id:
+            raise RuntimeError("❌ Telegram 环境变量未配置")
+
+        self.sender = TelegramSender(
+            bot_token=self.bot_token,
+            chat_id=self.chat_id,
+        )
+
+    def dispatch(self, content, *args, **kwargs):
         """
-        单次分发（兜底实现）
-        实际推送逻辑已在 notification.send_to_xxx 中完成
+        content: TrendRadar 生成的字符串 / dict / list
         """
-        return
+        print("📨 Dispatcher: 开始发送 Telegram 消息")
+
+        if isinstance(content, dict):
+            text = content.get("full_text") or str(content)
+        else:
+            text = str(content)
+
+        if not text.strip():
+            print("⚠️ Dispatcher: 内容为空，跳过推送")
+            return
+
+        self.sender.send([text])
+        print("✅ Dispatcher: Telegram 推送完成")
 
     def dispatch_all(self, *args, **kwargs):
         """
-        兼容旧版本调用：
-        dispatcher.dispatch_all(...)
+        兼容旧版本调用
         """
-        return self.dispatch(*args, **kwargs)
+        # TrendRadar 通常把最终内容作为第一个参数传入
+        if args:
+            return self.dispatch(args[0])
+        return
