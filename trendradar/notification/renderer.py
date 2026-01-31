@@ -3,10 +3,11 @@
 通知内容渲染模块（Renderer）
 
 职责：
-- 将分析结果渲染为“结构化文本块”
+- 将分析结果渲染为"结构化文本块"
 - 不关心发送平台、不关心字数限制
 """
 
+import json
 from datetime import datetime
 from typing import Dict, Any, List
 
@@ -35,7 +36,78 @@ class NotificationRenderer:
                         它可能直接是新闻数据，也可能是一个包含所有信息的字典。
         """
         
-        # 1. 尝试解包数据 (假设 input_data 是一个包含所有信息的“大字典”)
+        # ===============================================
+        # 🐛 DEBUG: 添加调试代码查看数据结构
+        # ===============================================
+        print("\n" + "="*80)
+        print("🔍 [DEBUG] Renderer 接收到的 input_data 结构")
+        print("="*80)
+        
+        # 保存原始数据用于调试
+        self._debug_input_data = input_data
+        
+        # 打印基本类型信息
+        print(f"📋 input_data 类型: {type(input_data)}")
+        
+        if isinstance(input_data, dict):
+            print(f"📋 字典键值: {list(input_data.keys())}")
+            
+            # 检查每个键值对
+            for key, value in input_data.items():
+                print(f"\n  🔹 {key} (类型: {type(value)}):")
+                
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    # 简单类型直接打印
+                    print(f"     值: {repr(str(value)[:100])}")
+                elif isinstance(value, list):
+                    # 列表类型打印长度和前几个元素
+                    print(f"     列表长度: {len(value)}")
+                    if len(value) > 0:
+                        print(f"     前 {min(3, len(value))} 个元素:")
+                        for i, item in enumerate(value[:3]):
+                            item_type = type(item)
+                            item_preview = str(item)[:80] + "..." if len(str(item)) > 80 else str(item)
+                            print(f"       [{i}] {item_type}: {item_preview}")
+                elif isinstance(value, dict):
+                    # 字典类型打印键
+                    print(f"     字典键: {list(value.keys())[:10]}{'...' if len(value) > 10 else ''}")
+                else:
+                    # 其他类型
+                    print(f"     预览: {str(value)[:80]}")
+        else:
+            print(f"📋 非字典值: {input_data}")
+        
+        # 特别检查是否有 'stats' 或 'report_data'
+        if isinstance(input_data, dict):
+            if 'report_data' in input_data:
+                print("\n📊 找到 'report_data'，内容结构:")
+                report_data = input_data['report_data']
+                print(f"   类型: {type(report_data)}")
+                if isinstance(report_data, dict):
+                    print(f"   键: {list(report_data.keys())}")
+            elif 'stats' in input_data:
+                print("\n📊 找到 'stats'，内容结构:")
+                stats = input_data['stats']
+                print(f"   类型: {type(stats)}")
+                if isinstance(stats, list) and stats:
+                    print(f"   长度: {len(stats)}")
+                    # 检查第一个元素
+                    if stats[0]:
+                        print(f"   第一个元素的键: {list(stats[0].keys())}")
+                        if 'titles' in stats[0]:
+                            titles = stats[0]['titles']
+                            print(f"   titles 类型: {type(titles)}")
+                            if isinstance(titles, list) and titles:
+                                print(f"   titles 长度: {len(titles)}")
+                                if isinstance(titles[0], dict):
+                                    print(f"   第一个标题的键: {list(titles[0].keys())}")
+        
+        print("="*80 + "\n")
+        # ===============================================
+        # 🐛 DEBUG 结束
+        # ===============================================
+        
+        # 1. 尝试解包数据 (假设 input_data 是一个包含所有信息的"大字典")
         # 如果 input_data 里有 "report_data" 这个 key，说明它是封装好的
         if isinstance(input_data, dict) and "report_data" in input_data:
             report_data = input_data.get("report_data", {})
@@ -87,6 +159,30 @@ class NotificationRenderer:
             ""
         ]
 
+        # 🐛 DEBUG: 打印 report_data 结构
+        print("\n" + "-"*60)
+        print("🔍 [DEBUG] _render_hot_topics 中的 report_data 结构")
+        print(f"类型: {type(report_data)}")
+        if isinstance(report_data, dict):
+            print(f"键: {list(report_data.keys())}")
+            if 'stats' in report_data:
+                stats = report_data['stats']
+                print(f"'stats' 类型: {type(stats)}")
+                if isinstance(stats, list):
+                    print(f"'stats' 长度: {len(stats)}")
+                    if stats:
+                        print(f"第一个元素的键: {list(stats[0].keys())}")
+                        if 'titles' in stats[0]:
+                            titles = stats[0]['titles']
+                            print(f"第一个元素的 'titles' 类型: {type(titles)}")
+                            if isinstance(titles, list) and titles:
+                                print(f"第一个元素的 'titles' 长度: {len(titles)}")
+                                if titles[0]:
+                                    print(f"第一个标题的类型: {type(titles[0])}")
+                                    if isinstance(titles[0], dict):
+                                        print(f"第一个标题的键: {list(titles[0].keys())}")
+        print("-"*60 + "\n")
+        
         # 🛡️ 防御性编程：只处理值为 list 的项，防止处理元数据字段
         if isinstance(report_data, dict):
             valid_sectors = {k: v for k, v in report_data.items() if isinstance(v, list)}
@@ -101,6 +197,14 @@ class NotificationRenderer:
             freq_map = {}
 
             for item in items:
+                # 🐛 DEBUG: 检查每个 item 的结构
+                if isinstance(item, dict):
+                    print(f"🔍 [DEBUG] 处理 item 的键: {list(item.keys())}")
+                    # 特别检查是否有 'title' 键
+                    if 'title' not in item:
+                        print(f"⚠️ [DEBUG] item 没有 'title' 键，使用备用键")
+                        print(f"   可用键: {list(item.keys())}")
+                
                 # ✅ 修复点：增加多种键名尝试，防止取不到标题
                 title = (
                     item.get("title") or 
@@ -109,6 +213,9 @@ class NotificationRenderer:
                     item.get("url") or 
                     "未知标题"
                 )
+                
+                # 🐛 DEBUG: 记录获取到的标题
+                print(f"🔍 [DEBUG] 提取的标题: {title[:50]}...")
                 
                 # 截断过长的标题，防止刷屏
                 if len(str(title)) > 50:
