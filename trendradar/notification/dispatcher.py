@@ -23,11 +23,20 @@ class NotificationDispatcher:
     def dispatch(self, analysis_result):
         self._dispatch_impl(analysis_result)
 
-    def dispatch_all(self, analysis_result):
+    def dispatch_all(self, analysis_result=None, report_data=None, **kwargs):
         """
-        兼容旧代码
+        兼容旧代码：同时支持传入 analysis_result 或 report_data
         """
-        self._dispatch_impl(analysis_result)
+        # 优先使用 analysis_result，如果没有则使用 report_data
+        # 这里的逻辑是：不管外部传进来叫什么名字，最终都统一传给 _dispatch_impl
+        final_data = analysis_result if analysis_result is not None else report_data
+        
+        if final_data is None:
+            print("⚠️ dispatch_all 被调用，但未收到有效的数据 (analysis_result 或 report_data 均为空)")
+            return
+
+        self._dispatch_impl(final_data)
+
 
     def _dispatch_impl(self, analysis_result):
         try:
