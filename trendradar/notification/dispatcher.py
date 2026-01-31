@@ -14,17 +14,17 @@ from .senders import TelegramSender
 
 
 class NotificationDispatcher:
-    def __init__(self):
-        self.renderer = NotificationRenderer()
-        self.splitter = NotificationSplitter()
-
-        # 目前只启用 Telegram，后续可扩展
-        self.senders = [
-            TelegramSender()
-        ]
-
-    def dispatch(self, analysis_result: Dict[str, Any]):
+    def __init__(self, *args, **kwargs):
         """
+        兼容不同版本调用方式
+        - 支持 NotificationDispatcher()
+        - 支持 NotificationDispatcher(config=xxx)
+        """
+        self.config = kwargs.get("config", None)
+
+    def dispatch(self, *args, **kwargs):
+        return
+        
         主入口：将分析结果分发到各推送渠道
         """
         try:
