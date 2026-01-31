@@ -37,7 +37,9 @@ class LocalStorageBackend(SQLiteStorageMixin, StorageBackend):
         data_dir: str = "output",
         enable_txt: bool = True,
         enable_html: bool = True,
+        retention_days: int = 0,
         timezone: str = "Asia/Shanghai",
+        **kwargs
     ):
         """
         初始化本地存储后端
@@ -46,11 +48,14 @@ class LocalStorageBackend(SQLiteStorageMixin, StorageBackend):
             data_dir: 数据目录路径
             enable_txt: 是否启用 TXT 快照
             enable_html: 是否启用 HTML 报告
+            retention_days: 本地数据保留天数
             timezone: 时区配置（默认 Asia/Shanghai）
+            **kwargs: 兼容多余参数
         """
         self.data_dir = Path(data_dir)
         self.enable_txt = enable_txt
         self.enable_html = enable_html
+        self.retention_days = int(retention_days)
         self.timezone = timezone
         self._db_connections: Dict[str, sqlite3.Connection] = {}
 
@@ -81,17 +86,6 @@ class LocalStorageBackend(SQLiteStorageMixin, StorageBackend):
     def _get_db_path(self, date: Optional[str] = None, db_type: str = "news") -> Path:
         """
         获取 SQLite 数据库路径
-
-        新结构（扁平）：output/{type}/{date}.db
-        - output/news/2025-12-28.db
-        - output/rss/2025-12-28.db
-
-        Args:
-            date: 日期字符串
-            db_type: 数据库类型 ("news" 或 "rss")
-
-        Returns:
-            数据库文件路径
         """
         date_str = self._format_date_folder(date)
         db_dir = self.data_dir / db_type
@@ -101,13 +95,6 @@ class LocalStorageBackend(SQLiteStorageMixin, StorageBackend):
     def _get_connection(self, date: Optional[str] = None, db_type: str = "news") -> sqlite3.Connection:
         """
         获取数据库连接（带缓存）
-
-        Args:
-            date: 日期字符串
-            db_type: 数据库类型 ("news" 或 "rss")
-
-        Returns:
-            数据库连接
         """
         db_path = str(self._get_db_path(date, db_type))
 
@@ -227,17 +214,7 @@ class LocalStorageBackend(SQLiteStorageMixin, StorageBackend):
     # ========================================
 
     def save_txt_snapshot(self, data: NewsData) -> Optional[str]:
-        """
-        保存 TXT 快照
-
-        新结构：output/txt/{date}/{time}.txt
-
-        Args:
-            data: 新闻数据
-
-        Returns:
-            保存的文件路径
-        """
+        """保存 TXT 快照"""
         if not self.enable_txt:
             return None
 
@@ -285,19 +262,7 @@ class LocalStorageBackend(SQLiteStorageMixin, StorageBackend):
             return None
 
     def save_html_report(self, html_content: str, filename: str, is_summary: bool = False) -> Optional[str]:
-        """
-        保存 HTML 报告
-
-        新结构：output/html/{date}/{filename}
-
-        Args:
-            html_content: HTML 内容
-            filename: 文件名
-            is_summary: 是否为汇总报告
-
-        Returns:
-            保存的文件路径
-        """
+        """保存 HTML 报告"""
         if not self.enable_html:
             return None
 
@@ -324,40 +289,34 @@ class LocalStorageBackend(SQLiteStorageMixin, StorageBackend):
 
     def cleanup(self) -> None:
         """清理资源（关闭数据库连接）"""
-        for db_path, conn in self._db_connections.items():
+        # 使用 getattr 安全获取，防止初始化失败时 __del__ 报错
+        connections = getattr(self, "_db_connections", {})
+        
+        for db_path, conn in connections.items():
             try:
                 conn.close()
                 print(f"[本地存储] 关闭数据库连接: {db_path}")
             except Exception as e:
                 print(f"[本地存储] 关闭连接失败 {db_path}: {e}")
 
-        self._db_connections.clear()
+        if hasattr(self, "_db_connections"):
+            self._db_connections.clear()
 
-    def cleanup_old_data(self, retention_days: int) -> int:
+    def cleanup_old_data(self, retention_days: int = 0) -> int:
         """
         清理过期数据
-
-        新结构清理逻辑：
-        - output/news/{date}.db  -> 删除过期的 .db 文件
-        - output/rss/{date}.db   -> 删除过期的 .db 文件
-        - output/txt/{date}/     -> 删除过期的日期目录
-        - output/html/{date}/    -> 删除过期的日期目录
-
-        Args:
-            retention_days: 保留天数（0 表示不清理）
-
-        Returns:
-            删除的文件/目录数量
         """
-        if retention_days <= 0:
+        # 优先使用传入参数，否则使用实例配置
+        days = retention_days if retention_days > 0 else self.retention_days
+        
+        if days <= 0:
             return 0
 
         deleted_count = 0
-        cutoff_date = self._get_configured_time() - timedelta(days=retention_days)
+        cutoff_date = self._get_configured_time() - timedelta(days=days)
 
         def parse_date_from_name(name: str) -> Optional[datetime]:
             """从文件名或目录名解析日期 (ISO 格式: YYYY-MM-DD)"""
-            # 移除 .db 后缀
             name = name.replace('.db', '')
             try:
                 date_match = re.match(r'(\d{4})-(\d{2})-(\d{2})', name)
@@ -432,4 +391,5 @@ class LocalStorageBackend(SQLiteStorageMixin, StorageBackend):
 
     def __del__(self):
         """析构函数，确保关闭连接"""
-        self.cleanup()
+        if hasattr(self, "cleanup"):
+            self.cleanup()
