@@ -17,13 +17,13 @@ from trendradar.storage.base import StorageBackend
 class R2StorageBackend(StorageBackend):
     backend_name = "cloudflare-r2"
 
-    def __init__(self, config: Dict, retention_days: int = 0, **kwargs):
+        def __init__(self, config: Dict, retention_days: int = 0, **kwargs):
         """
-        修正初始化参数：
-        1. 接收 config
-        2. 接收显式传入的 retention_days
-        3. 接收 **kwargs 以防止传入额外参数导致报错
+        初始化 R2 存储后端 (调试版)
         """
+        # 1. 打印传入的 config 键（不打印值，防止泄露密码），帮你确认 config 是否为空
+        print(f"DEBUG: R2 received config keys: {list(config.keys())}")
+
         self.endpoint_url = config.get("ENDPOINT_URL")
         self.bucket = config.get("BUCKET_NAME")
         self.access_key = config.get("ACCESS_KEY_ID")
@@ -34,8 +34,21 @@ class R2StorageBackend(StorageBackend):
         r_days = retention_days or config.get("RETENTION_DAYS", 0)
         self.retention_days = int(r_days)
 
-        if not all([self.endpoint_url, self.bucket, self.access_key, self.secret_key]):
-            raise ValueError("R2 存储配置不完整")
+        # 2. 详细检查哪个参数缺失
+        missing_params = []
+        if not self.endpoint_url: missing_params.append("ENDPOINT_URL")
+        if not self.bucket: missing_params.append("BUCKET_NAME")
+        if not self.access_key: missing_params.append("ACCESS_KEY_ID")
+        if not self.secret_key: missing_params.append("SECRET_ACCESS_KEY")
+
+        if missing_params:
+            error_msg = f"R2 存储配置不完整，缺少以下参数: {', '.join(missing_params)}"
+            print(f"❌ {error_msg}")
+            # 打印当前读取到的值（部分脱敏）
+            print(f"   Current Endpoint: {self.endpoint_url}")
+            print(f"   Current Bucket: {self.bucket}")
+            print(f"   Current Access Key: {'***' if self.access_key else 'None'}")
+            raise ValueError(error_msg)
 
         self.s3 = boto3.client(
             "s3",
@@ -45,6 +58,7 @@ class R2StorageBackend(StorageBackend):
             config=Config(signature_version="s3v4"),
             region_name="auto",
         )
+
 
     # ------------------------------------------------------------------
     # 基础工具
