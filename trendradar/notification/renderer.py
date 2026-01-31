@@ -22,7 +22,10 @@ class NotificationRenderer:
         self.report_type = report_type
         self.mode = mode
         self.account_label = account_label
-        self.now = get_time_func() if get_time_func else datetime.    # =========================
+        # ✅ 修复点：补全了 datetime.now()
+        self.now = get_time_func() if get_time_func else datetime.now()
+
+    # =========================
     # 对外唯一入口（已修复参数接收问题）
     # =========================
     def render(self, input_data: Dict[str, Any]) -> Dict[str, str]:
@@ -47,12 +50,13 @@ class NotificationRenderer:
             portfolio = None
             history_summary = None
 
-        # 3. 开始渲染
+        # 3. 开始渲染各个模块
         hot_topics = self._render_hot_topics(report_data)
         ai_block = self._render_ai_analysis(ai_analysis)
         portfolio_block = self._render_portfolio_impact(portfolio, report_data)
         trend_block = self._render_trend_compare(history_summary, ai_analysis)
 
+        # 4. 拼装完整文本
         full_text = "\n\n".join(
             block for block in [
                 hot_topics,
@@ -83,8 +87,11 @@ class NotificationRenderer:
             ""
         ]
 
-        # 过滤掉非字典或列表的异常数据
-        valid_sectors = {k: v for k, v in report_data.items() if isinstance(v, list)}
+        # 🛡️ 防御性编程：只处理值为 list 的项，防止处理元数据字段
+        if isinstance(report_data, dict):
+            valid_sectors = {k: v for k, v in report_data.items() if isinstance(v, list)}
+        else:
+            return "⚠️ 数据格式错误"
 
         for sector, items in valid_sectors.items():
             if not items:
@@ -94,8 +101,7 @@ class NotificationRenderer:
             freq_map = {}
 
             for item in items:
-                # --- 修复核心：尝试多种可能的键名 ---
-                # 你的数据里可能不叫 title，可能叫 content, text, header, link 等
+                # ✅ 修复点：增加多种键名尝试，防止取不到标题
                 title = (
                     item.get("title") or 
                     item.get("content") or 
@@ -103,6 +109,7 @@ class NotificationRenderer:
                     item.get("url") or 
                     "未知标题"
                 )
+                
                 # 截断过长的标题，防止刷屏
                 if len(str(title)) > 50:
                     title = str(title)[:50] + "..."
@@ -128,7 +135,7 @@ class NotificationRenderer:
         lines = [
             "🧠 **AI 综合研判**",
             "",
-            ai_analysis.summary.strip(),
+            getattr(ai_analysis, "summary", "").strip(),
         ]
 
         if getattr(ai_analysis, "conclusion", None):
@@ -148,7 +155,7 @@ class NotificationRenderer:
         portfolio: List[Dict],
         report_data: Dict[str, Any],
     ) -> str:
-        if not portfolio:
+        if not portfolio or not report_data:
             return ""
 
         lines = ["📊 **持仓相关影响分析**", ""]
@@ -158,15 +165,18 @@ class NotificationRenderer:
             code = stock.get("code")
             sector = stock.get("sector")
 
+            # 尝试在 report_data 中找到对应板块的新闻
             related_news = report_data.get(sector, [])
 
             if not related_news:
                 continue
 
             lines.append(f"🔹 **{name}（{code}）**")
+            # 只取前3条相关新闻
             for news in related_news[:3]:
+                news_title = news.get('title') or news.get('content') or "相关动态"
                 impact = news.get("impact", "中性")
-                lines.append(f"- {news.get('title')} ｜ 影响：{impact}")
+                lines.append(f"- {news_title} ｜ 影响：{impact}")
 
             lines.append("")
 
@@ -186,8 +196,7 @@ class NotificationRenderer:
         lines = ["📈 **趋势对比分析（新 vs 历史）**", ""]
 
         prev_trend = history_summary.get("trend")
-        prev_conclusion = history_summary.get("conclusion")
-
+        
         if prev_trend:
             lines.append(f"昨日/上期判断：{prev_trend}")
 
@@ -195,7 +204,7 @@ class NotificationRenderer:
             lines.append(f"本次判断：{ai_analysis.conclusion}")
 
         if prev_trend and ai_analysis:
-            if prev_trend == ai_analysis.conclusion:
+            if prev_trend == getattr(ai_analysis, "conclusion", ""):
                 lines.append("➡️ 趋势判断延续")
             else:
                 lines.append("⚠️ 趋势判断发生变化，需重点关注")
