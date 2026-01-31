@@ -10,6 +10,7 @@ import os
 import webbrowser
 import json
 import requests
+import logging  # [修复] 引入 logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from difflib import SequenceMatcher
@@ -22,6 +23,10 @@ from trendradar.crawler import DataFetcher
 from trendradar.storage import convert_crawl_results_to_news_data
 from trendradar.utils.time import is_within_days
 from trendradar.ai import AIAnalyzer, AIAnalysisResult
+
+# [修复] 初始化日志记录器
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 
 def check_version_update(
@@ -700,20 +705,12 @@ class NewsAnalyzer:
         # ---------------------------------------------------------------
         # 2. 列表展示：构建【精简数据】(隐藏弱信号)
         # ---------------------------------------------------------------
-        # 策略：如果一个板块只有 1 条新闻，且这条新闻排名在 10 名以外，
-        # 我们认为它是"太弱的信号"，不值得占用列表空间，只让 AI 分析即可。
-        
         filtered_stats_for_display = []
         if stats:
             for group in stats:
                 titles = group.get('titles', [])
                 if not titles:
                     continue
-                
-                # 判断逻辑：
-                # 1. 如果有 2 条及以上新闻 -> 强板块，显示
-                # 2. 如果只有 1 条，但排名在 前10 -> 强新闻，显示
-                # 3. 否则 -> 弱信号，隐藏列表 (但 AI 已经读过了)
                 
                 is_strong = len(titles) >= 2
                 if not is_strong:
@@ -724,15 +721,10 @@ class NewsAnalyzer:
                 
                 if is_strong:
                     filtered_stats_for_display.append(group)
-                else:
-                    # 可以在这里打印日志方便调试
-                    # print(f"[列表优化] 隐藏弱信号板块: {group['word']} (仅1条且排名靠后)")
-                    pass
 
         # ---------------------------------------------------------------
         # 3. 生成报告并推送
         # ---------------------------------------------------------------
-        # 注意：这里传入的是 filtered_stats_for_display，只包含强板块
         report_data = self.ctx.prepare_report(filtered_stats_for_display, failed_ids, new_titles, id_to_name, mode)
         
         update_info_to_send = self.update_info if cfg["SHOW_VERSION_UPDATE"] else None
@@ -742,7 +734,7 @@ class NewsAnalyzer:
         has_any_content = has_news_content or has_rss_content
 
         if cfg["ENABLE_NOTIFICATION"] and has_notification and has_any_content:
-            # 输出推送内容统计 (基于过滤后的数据)
+            # 输出推送内容统计
             news_count = sum(len(stat.get("titles", [])) for stat in filtered_stats_for_display)
             rss_count = sum(stat.get("count", 0) for stat in rss_items) if rss_items else 0
             
@@ -780,7 +772,7 @@ class NewsAnalyzer:
                 html_file_path=html_file_path,
                 rss_items=rss_items,
                 rss_new_items=rss_new_items,
-                ai_analysis=ai_result, # AI 结果是基于全量数据的
+                ai_analysis=ai_result, 
                 standalone_data=standalone_data,
             )
 
@@ -939,7 +931,6 @@ class NewsAnalyzer:
                 rank_threshold=self.rank_threshold,
                 quiet=False,
             )
-            # 对 RSS 统计标题也进行语义去重
             if rss_stats:
                 for group in rss_stats:
                     if 'titles' in group:
@@ -1019,31 +1010,29 @@ class NewsAnalyzer:
                 standalone_data=standalone_data,
             )
             
-            # === 🟢 核心修复：JSON 导出兜底逻辑 ===
+            # === JSON 导出兜底逻辑 ===
             if ai_result: 
                 self._export_json_for_stock_analysis(ai_result)
             else:
-                # 如果 AI 没跑（比如没有匹配到新闻），强制生成一个空的 JSON
-                # 这样 GitHub Actions 的 upload-artifact 就不会报错了
                 print("[系统] 未触发 AI 分析，生成兜底 JSON 文件...")
                 dummy_result = AIAnalysisResult(success=True, core_trends="无重大市场异动")
                 self._export_json_for_stock_analysis(dummy_result)
-            # =======================================
-            # === 保存趋势历史到 R2（不影响主流程） ===
-            try:
-                trend_summary = []
             
-                for item in industry_analysis:  # 你已有的 AI 行业结果
-                    trend_summary.append({
-                        "name": item.get("industry"),
-                        "intensity": item.get("level"),
-                        "reason": item.get("summary", "")[:120]
-                    })
-            
-                storage_manager.r2.save_daily_trends(trend_summary)
-            
-            except Exception as e:
-                logger.warning(f"[R2] 趋势历史保存失败: {e}")
+            # === [修复] 尝试保存 AI 分析结果到远程存储 ===
+            # 使用正确的 save_ai_result 方法，而不是错误的 save_daily_trends
+            if ai_result and hasattr(self.storage_manager, "save_ai_result"):
+                try:
+                    # 将 AI 结果对象转换为字典以便存储
+                    ai_data_dict = {
+                        "core_trends": ai_result.core_trends,
+                        "industry_analysis": ai_result.stock_analysis_data, # 映射到 industry
+                        "market_sentiment": getattr(ai_result, "sentiment", "Neutral"),
+                        "raw_json": self._export_json_for_stock_analysis(ai_result) # 复用导出逻辑
+                    }
+                    self.storage_manager.save_ai_result(self.ctx.format_date(), ai_data_dict)
+                    print(f"[存储] AI 分析结果已保存到 {self.storage_manager.backend_name}")
+                except Exception as e:
+                    logger.warning(f"[存储] 保存 AI 结果失败: {e}")
             
             # 发送通知
             if mode_strategy["should_send_notification"]:
