@@ -22,7 +22,18 @@ class NotificationDispatcher:
         """
         self.config = kwargs.get("config")
 
-        self.renderer = NotificationRenderer()
+        # === 关键修复点 ===
+        # renderer 需要 report_type
+        if self.config and hasattr(self.config, "report_type"):
+            report_type = self.config.report_type
+        elif self.config and isinstance(self.config, dict):
+            report_type = self.config.get("report_type", "current")
+        else:
+            report_type = "current"
+
+        print(f"📄 Dispatcher: 使用 report_type = {report_type}")
+
+        self.renderer = NotificationRenderer(report_type=report_type)
         self.splitter = NotificationSplitter()
         self.sender = TelegramSender()
 
