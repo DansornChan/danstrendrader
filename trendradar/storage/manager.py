@@ -44,6 +44,9 @@ class StorageManager:
         self.pull_days = pull_days
         self.timezone = timezone
 
+        # ✅ 新增：当前实际使用的 backend 名称
+        self.backend_name: str = "unknown"
+
         self._backend = None
         self._remote_backend = None
 
