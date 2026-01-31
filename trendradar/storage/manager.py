@@ -26,47 +26,33 @@ class StorageManager:
     - 支持从远程拉取数据到本地
     """
 
-    def __init__(
-        self,
-        backend_type: str = "auto",
-        data_dir: str = "output",
-        enable_txt: bool = True,
-        enable_html: bool = True,
-        remote_config: Optional[dict] = None,
-        local_retention_days: int = 0,
-        remote_retention_days: int = 0,
-        pull_enabled: bool = False,
-        pull_days: int = 0,
-        timezone: str = "Asia/Shanghai",
-    ):
-        """
-        初始化存储管理器
+from trendradar.storage.r2 import R2Storage
 
-        Args:
-            backend_type: 存储后端类型 (local / remote / auto)
-            data_dir: 本地数据目录
-            enable_txt: 是否启用 TXT 快照
-            enable_html: 是否启用 HTML 报告
-            remote_config: 远程存储配置（endpoint_url, bucket_name, access_key_id 等）
-            local_retention_days: 本地数据保留天数（0 = 无限制）
-            remote_retention_days: 远程数据保留天数（0 = 无限制）
-            pull_enabled: 是否启用启动时自动拉取
-            pull_days: 拉取最近 N 天的数据
-            timezone: 时区配置（默认 Asia/Shanghai）
-        """
-        self.backend_type = backend_type
-        self.data_dir = data_dir
-        self.enable_txt = enable_txt
-        self.enable_html = enable_html
-        self.remote_config = remote_config or {}
-        self.local_retention_days = local_retention_days
-        self.remote_retention_days = remote_retention_days
-        self.pull_enabled = pull_enabled
-        self.pull_days = pull_days
-        self.timezone = timezone
+def __init__(
+    self,
+    backend_type: str = "auto",
+    data_dir: str = "output",
+    enable_txt: bool = True,
+    enable_html: bool = True,
+    remote_config: Optional[dict] = None,
+    local_retention_days: int = 0,
+    remote_retention_days: int = 0,
+    pull_enabled: bool = False,
+    pull_days: int = 0,
+    timezone: str = "Asia/Shanghai",
+):
+    ...
+    self._backend: Optional[StorageBackend] = None
+    self._remote_backend: Optional[StorageBackend] = None
 
-        self._backend: Optional[StorageBackend] = None
-        self._remote_backend: Optional[StorageBackend] = None
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 📦 Cloudflare R2（趋势历史存储）
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    self.r2 = R2Storage()
+    if self.r2.enabled:
+        logger.info("[存储管理器] Cloudflare R2 已启用（趋势历史持久化）")
+    else:
+        logger.info("[存储管理器] Cloudflare R2 未配置，跳过趋势历史存储")
 
     @staticmethod
     def is_github_actions() -> bool:
