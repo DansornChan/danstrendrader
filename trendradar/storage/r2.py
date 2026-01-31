@@ -4,6 +4,7 @@ Cloudflare R2 Storage Backend for TrendRadar
 """
 
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
@@ -19,29 +20,65 @@ class R2StorageBackend(StorageBackend):
 
     def __init__(self, config: Dict, retention_days: int = 0, **kwargs):
         """
-        修正初始化参数：
-        1. 接收 config
-        2. 接收显式传入的 retention_days
-        3. 接收 **kwargs 以防止传入额外参数导致报错
+        初始化 R2 存储后端
+        优先级逻辑：
+        1. config 字典中的值
+        2. 环境变量 (os.getenv)
         """
-        self.endpoint_url = config.get("ENDPOINT_URL") or config.get("S3_ENDPOINT_URL")
-        self.bucket = config.get("BUCKET_NAME") or config.get("S3_BUCKET_NAME")
-        self.access_key = config.get("ACCESS_KEY_ID") or config.get("S3_ACCESS_KEY_ID")
-        self.secret_key = config.get("SECRET_ACCESS_KEY") or config.get("S3_SECRET_ACCESS_KEY")
-        self.prefix = config.get("PREFIX", "trendradar").strip("/")
+        # --- 1. 获取 Endpoint URL ---
+        self.endpoint_url = (
+            config.get("ENDPOINT_URL") or 
+            config.get("S3_ENDPOINT_URL") or 
+            os.getenv("S3_ENDPOINT_URL") or 
+            os.getenv("R2_ENDPOINT_URL")
+        )
 
-        # 优先使用传入的 retention_days，如果没有则从 config 读取
-        r_days = retention_days or config.get("RETENTION_DAYS", 0)
+        # --- 2. 获取 Bucket Name ---
+        self.bucket = (
+            config.get("BUCKET_NAME") or 
+            config.get("S3_BUCKET_NAME") or 
+            os.getenv("S3_BUCKET_NAME") or 
+            os.getenv("R2_BUCKET_NAME")
+        )
+
+        # --- 3. 获取 Access Key ---
+        self.access_key = (
+            config.get("ACCESS_KEY_ID") or 
+            config.get("S3_ACCESS_KEY_ID") or 
+            os.getenv("S3_ACCESS_KEY_ID") or 
+            os.getenv("R2_ACCESS_KEY_ID")
+        )
+
+        # --- 4. 获取 Secret Key ---
+        self.secret_key = (
+            config.get("SECRET_ACCESS_KEY") or 
+            config.get("S3_SECRET_ACCESS_KEY") or 
+            os.getenv("S3_SECRET_ACCESS_KEY") or 
+            os.getenv("R2_SECRET_ACCESS_KEY")
+        )
+
+        # --- 5. 其他配置 ---
+        self.prefix = (
+            config.get("PREFIX") or 
+            config.get("S3_PREFIX") or 
+            os.getenv("S3_PREFIX") or 
+            "trendradar"
+        ).strip("/")
+
+        # 优先使用传入的 retention_days，否则查 config，最后查环境变量
+        env_retention = os.getenv("RETENTION_DAYS") or os.getenv("S3_RETENTION_DAYS")
+        r_days = retention_days or config.get("RETENTION_DAYS") or env_retention or 0
         self.retention_days = int(r_days)
 
-        # 打印调试信息，帮助定位配置问题 (脱敏)
-        # print(f"DEBUG R2 Init: Endpoint={self.endpoint_url}, Bucket={self.bucket}")
-
+        # --- 6. 验证配置 ---
         if not all([self.endpoint_url, self.bucket, self.access_key, self.secret_key]):
-            # 尝试根据环境变量日志里的变量名做一次最后的挣扎读取
-            # 如果是 GitHub Actions，变量名常常是 S3_前缀
-            raise ValueError(f"R2 存储配置不完整。Endpoint: {self.endpoint_url}, Bucket: {self.bucket}")
+            # 打印部分信息辅助调试（注意安全，隐藏密钥）
+            print(f"DEBUG: Endpoint found: {self.endpoint_url}")
+            print(f"DEBUG: Bucket found: {self.bucket}")
+            print(f"DEBUG: AccessKey present: {'Yes' if self.access_key else 'No'}")
+            raise ValueError("R2 存储配置不完整，未能从 config 或 环境变量 中读取到必要信息 (Endpoint/Bucket/Keys)")
 
+        # --- 7. 初始化 Boto3 客户端 ---
         self.s3 = boto3.client(
             "s3",
             endpoint_url=self.endpoint_url,
