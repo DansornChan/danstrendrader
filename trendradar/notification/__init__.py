@@ -28,10 +28,6 @@ from trendradar.notification.batch import (
     truncate_to_bytes,
     add_batch_headers,
 )
-from trendradar.notification.renderer import (
-    render_feishu_content,
-    render_dingtalk_content,
-)
 from trendradar.notification.splitter import (
     split_content_into_batches,
     DEFAULT_BATCH_SIZES,
@@ -48,6 +44,20 @@ from trendradar.notification.senders import (
     SMTP_CONFIGS,
 )
 from trendradar.notification.dispatcher import NotificationDispatcher
+
+# ---- renderer 模块兼容导入 ----
+try:
+    from trendradar.notification.renderer import render_feishu_content
+except ImportError:
+    # 如果 renderer.py 没有 render_feishu_content，定义一个占位函数
+    def render_feishu_content(*args, **kwargs):
+        return None
+
+try:
+    from trendradar.notification.renderer import render_dingtalk_content
+except ImportError:
+    def render_dingtalk_content(*args, **kwargs):
+        return None
 
 __all__ = [
     # 推送记录管理
