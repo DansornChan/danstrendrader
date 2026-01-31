@@ -2,12 +2,7 @@ name: Get Hot News
 
 on:
   schedule:
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 🕒 定时运行 (UTC时间)
-    # 对应北京时间: 08:00, 11:00, 14:00, 20:00, 23:00
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     - cron: "0 0,3,6,12,15 * * *"
-
   workflow_dispatch:
 
 concurrency:
@@ -31,7 +26,7 @@ jobs:
           clean: true
 
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      # ⚠️ 试用期检查机制
+      # ⚠️ 试用期检查机制（原样保留）
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       - name: Check Expiration
         env:
@@ -86,25 +81,18 @@ jobs:
           mkdir -p output
 
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      # 🚀 Run TrendRadar (AI + Fallback 已完整注入)
+      # 🚀 Run TrendRadar —— 强制使用 DeepSeek（关键修改点）
       # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      - name: Run crawler
+      - name: Run crawler (DeepSeek Only)
         env:
-          # ===== AI 主 / 备模型（关键）=====
-          PRIMARY_API_KEY: ${{ secrets.PRIMARY_API_KEY }}
-          PRIMARY_MODEL: ${{ secrets.PRIMARY_MODEL }}
+          # ===== AI 核心配置 =====
+          AI_ANALYSIS_ENABLED: "true"
+          AI_PROVIDER: "deepseek"
+          AI_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          AI_MODEL: "deepseek-chat"
 
-          FALLBACK_API_KEY: ${{ secrets.FALLBACK_API_KEY }}
-          FALLBACK_MODEL: ${{ secrets.FALLBACK_MODEL }}
-
-          # ===== 兼容旧逻辑 / LiteLLM =====
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          # ===== 兼容部分旧逻辑（只给 DeepSeek）=====
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-
-          AI_ANALYSIS_ENABLED: true
-          AI_API_KEY: ${{ secrets.PRIMARY_API_KEY }}
-          AI_MODEL: ${{ secrets.PRIMARY_MODEL }}
-          AI_API_BASE: ${{ secrets.AI_API_BASE }}
 
           # ===== 通知渠道 =====
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -139,7 +127,8 @@ jobs:
           S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
           S3_REGION: ${{ secrets.S3_REGION }}
 
-          GITHUB_ACTIONS: true
+          TZ: Asia/Shanghai
+          GITHUB_ACTIONS: "true"
 
         run: python -m trendradar
 
