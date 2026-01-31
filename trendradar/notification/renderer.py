@@ -7,7 +7,6 @@
 - 不关心发送平台、不关心字数限制
 """
 
-import json
 from datetime import datetime
 from typing import Dict, Any, List
 
@@ -36,77 +35,6 @@ class NotificationRenderer:
                         它可能直接是新闻数据，也可能是一个包含所有信息的字典。
         """
         
-        # ===============================================
-        # 🐛 DEBUG: 添加调试代码查看数据结构
-        # ===============================================
-        print("\n" + "="*80)
-        print("🔍 [DEBUG] Renderer 接收到的 input_data 结构")
-        print("="*80)
-        
-        # 保存原始数据用于调试
-        self._debug_input_data = input_data
-        
-        # 打印基本类型信息
-        print(f"📋 input_data 类型: {type(input_data)}")
-        
-        if isinstance(input_data, dict):
-            print(f"📋 字典键值: {list(input_data.keys())}")
-            
-            # 检查每个键值对
-            for key, value in input_data.items():
-                print(f"\n  🔹 {key} (类型: {type(value)}):")
-                
-                if isinstance(value, (str, int, float, bool)) or value is None:
-                    # 简单类型直接打印
-                    print(f"     值: {repr(str(value)[:100])}")
-                elif isinstance(value, list):
-                    # 列表类型打印长度和前几个元素
-                    print(f"     列表长度: {len(value)}")
-                    if len(value) > 0:
-                        print(f"     前 {min(3, len(value))} 个元素:")
-                        for i, item in enumerate(value[:3]):
-                            item_type = type(item)
-                            item_preview = str(item)[:80] + "..." if len(str(item)) > 80 else str(item)
-                            print(f"       [{i}] {item_type}: {item_preview}")
-                elif isinstance(value, dict):
-                    # 字典类型打印键
-                    print(f"     字典键: {list(value.keys())[:10]}{'...' if len(value) > 10 else ''}")
-                else:
-                    # 其他类型
-                    print(f"     预览: {str(value)[:80]}")
-        else:
-            print(f"📋 非字典值: {input_data}")
-        
-        # 特别检查是否有 'stats' 或 'report_data'
-        if isinstance(input_data, dict):
-            if 'report_data' in input_data:
-                print("\n📊 找到 'report_data'，内容结构:")
-                report_data = input_data['report_data']
-                print(f"   类型: {type(report_data)}")
-                if isinstance(report_data, dict):
-                    print(f"   键: {list(report_data.keys())}")
-            elif 'stats' in input_data:
-                print("\n📊 找到 'stats'，内容结构:")
-                stats = input_data['stats']
-                print(f"   类型: {type(stats)}")
-                if isinstance(stats, list) and stats:
-                    print(f"   长度: {len(stats)}")
-                    # 检查第一个元素
-                    if stats[0]:
-                        print(f"   第一个元素的键: {list(stats[0].keys())}")
-                        if 'titles' in stats[0]:
-                            titles = stats[0]['titles']
-                            print(f"   titles 类型: {type(titles)}")
-                            if isinstance(titles, list) and titles:
-                                print(f"   titles 长度: {len(titles)}")
-                                if isinstance(titles[0], dict):
-                                    print(f"   第一个标题的键: {list(titles[0].keys())}")
-        
-        print("="*80 + "\n")
-        # ===============================================
-        # 🐛 DEBUG 结束
-        # ===============================================
-        
         # 1. 尝试解包数据 (假设 input_data 是一个包含所有信息的"大字典")
         # 如果 input_data 里有 "report_data" 这个 key，说明它是封装好的
         if isinstance(input_data, dict) and "report_data" in input_data:
@@ -114,6 +42,7 @@ class NotificationRenderer:
             ai_analysis = input_data.get("ai_analysis")
             portfolio = input_data.get("portfolio")
             history_summary = input_data.get("history_summary")
+            rss_items = input_data.get("rss_items", [])
         else:
             # 2. 兼容模式 (假设 input_data 本身就是 report_data)
             # 这种情况会导致 AI 分析等内容无法显示，但至少新闻能出来
@@ -121,9 +50,11 @@ class NotificationRenderer:
             ai_analysis = None
             portfolio = None
             history_summary = None
+            rss_items = []
 
         # 3. 开始渲染各个模块
         hot_topics = self._render_hot_topics(report_data)
+        rss_block = self._render_rss_items(rss_items)
         ai_block = self._render_ai_analysis(ai_analysis)
         portfolio_block = self._render_portfolio_impact(portfolio, report_data)
         trend_block = self._render_trend_compare(history_summary, ai_analysis)
@@ -132,14 +63,16 @@ class NotificationRenderer:
         full_text = "\n\n".join(
             block for block in [
                 hot_topics,
+                rss_block,
                 ai_block,
                 portfolio_block,
                 trend_block
-            ] if block
+            ] if block and block.strip()
         )
 
         return {
             "hot_topics": hot_topics,
+            "rss_items": rss_block,
             "ai_analysis": ai_block,
             "portfolio_impact": portfolio_block,
             "trend_compare": trend_block,
@@ -151,146 +84,222 @@ class NotificationRenderer:
     # =========================
     def _render_hot_topics(self, report_data: Dict[str, Any]) -> str:
         if not report_data:
-            return "⚠️ 无热点数据"
+            return ""
+
+        # 检查数据结构
+        if 'stats' not in report_data or not isinstance(report_data['stats'], list):
+            return ""
+
+        stats = report_data['stats']
+        if not stats:
+            return ""
 
         lines = [
             f"🔥 **分领域重点新闻**",
             f"时间：{self.now.strftime('%Y-%m-%d %H:%M')}",
+            f"模式：{self.report_type}",
             ""
         ]
 
-        # 🐛 DEBUG: 打印 report_data 结构
-        print("\n" + "-"*60)
-        print("🔍 [DEBUG] _render_hot_topics 中的 report_data 结构")
-        print(f"类型: {type(report_data)}")
-        if isinstance(report_data, dict):
-            print(f"键: {list(report_data.keys())}")
-            if 'stats' in report_data:
-                stats = report_data['stats']
-                print(f"'stats' 类型: {type(stats)}")
-                if isinstance(stats, list):
-                    print(f"'stats' 长度: {len(stats)}")
-                    if stats:
-                        print(f"第一个元素的键: {list(stats[0].keys())}")
-                        if 'titles' in stats[0]:
-                            titles = stats[0]['titles']
-                            print(f"第一个元素的 'titles' 类型: {type(titles)}")
-                            if isinstance(titles, list) and titles:
-                                print(f"第一个元素的 'titles' 长度: {len(titles)}")
-                                if titles[0]:
-                                    print(f"第一个标题的类型: {type(titles[0])}")
-                                    if isinstance(titles[0], dict):
-                                        print(f"第一个标题的键: {list(titles[0].keys())}")
-        print("-"*60 + "\n")
-        
-        # 🛡️ 防御性编程：只处理值为 list 的项，防止处理元数据字段
-        if isinstance(report_data, dict):
-            valid_sectors = {k: v for k, v in report_data.items() if isinstance(v, list)}
-        else:
-            return "⚠️ 数据格式错误"
-
-        for sector, items in valid_sectors.items():
-            if not items:
+        for stat in stats:
+            word = stat.get('word', '未命名')
+            count = stat.get('count', 0)
+            titles = stat.get('titles', [])
+            
+            if not titles:
                 continue
-
-            lines.append(f"【{sector}】")
-            freq_map = {}
-
-            for item in items:
-                # 🐛 DEBUG: 检查每个 item 的结构
-                if isinstance(item, dict):
-                    print(f"🔍 [DEBUG] 处理 item 的键: {list(item.keys())}")
-                    # 特别检查是否有 'title' 键
-                    if 'title' not in item:
-                        print(f"⚠️ [DEBUG] item 没有 'title' 键，使用备用键")
-                        print(f"   可用键: {list(item.keys())}")
                 
-                # ✅ 修复点：增加多种键名尝试，防止取不到标题
-                title = (
-                    item.get("title") or 
-                    item.get("content") or 
-                    item.get("text") or 
-                    item.get("url") or 
-                    "未知标题"
-                )
-                
-                # 🐛 DEBUG: 记录获取到的标题
-                print(f"🔍 [DEBUG] 提取的标题: {title[:50]}...")
-                
-                # 截断过长的标题，防止刷屏
-                if len(str(title)) > 50:
-                    title = str(title)[:50] + "..."
-                
-                freq_map[title] = freq_map.get(title, 0) + 1
+            # 显示关键词和总条数
+            lines.append(f"【{word}】（{count}条）")
+            
+            # 处理每个标题
+            for title_item in titles:
+                # 从标题项中提取标题
+                if isinstance(title_item, dict):
+                    title = title_item.get('title') or title_item.get('content') or "无标题"
+                    source = title_item.get('source_name', '')
+                    time_display = title_item.get('time_display', '')
+                    rank = title_item.get('rank', '')
+                    is_new = title_item.get('is_new', False)
+                    
+                    # 构建显示文本
+                    display_parts = []
+                    
+                    # 标题
+                    if len(title) > 60:
+                        title_display = title[:57] + "..."
+                    else:
+                        title_display = title
+                    
+                    # 来源和时间
+                    if source:
+                        display_parts.append(f"{source}")
+                    if time_display:
+                        display_parts.append(f"{time_display}")
+                    
+                    # 排名
+                    if rank:
+                        display_parts.append(f"第{rank}位")
+                    
+                    # 是否为新标题
+                    if is_new:
+                        display_parts.append("🆕")
+                    
+                    # 组装
+                    if display_parts:
+                        info_str = "（" + " | ".join(display_parts) + "）"
+                    else:
+                        info_str = ""
+                    
+                    lines.append(f"  - {title_display}{info_str}")
+                else:
+                    # 如果标题项不是字典，直接显示
+                    title_str = str(title_item)
+                    if len(title_str) > 60:
+                        title_str = title_str[:57] + "..."
+                    lines.append(f"  - {title_str}")
+            
+            lines.append("")
 
-            # 按频率降序排列
-            for title, freq in sorted(freq_map.items(), key=lambda x: -x[1]):
-                suffix = f"（出现 {freq} 次）" if freq > 1 else ""
-                lines.append(f"- {title}{suffix}")
+        if len(lines) <= 4:  # 只有标题行，没有实际内容
+            return ""
 
+        return "\n".join(lines).strip()
+
+    # =========================
+    # ② RSS 项目渲染
+    # =========================
+    def _render_rss_items(self, rss_items: List[Dict]) -> str:
+        if not rss_items:
+            return ""
+
+        lines = ["📰 **RSS 深度新闻**", ""]
+
+        for rss_stat in rss_items:
+            word = rss_stat.get('word', '未分类')
+            count = rss_stat.get('count', 0)
+            titles = rss_stat.get('titles', [])
+            
+            if not titles:
+                continue
+                
+            lines.append(f"【{word}】（{count}条）")
+            
+            for title_item in titles:
+                if isinstance(title_item, dict):
+                    title = title_item.get('title', '无标题')
+                    feed_name = title_item.get('feed_name', '')
+                    published_at = title_item.get('published_at', '')
+                    
+                    # 截断标题
+                    if len(title) > 60:
+                        title = title[:57] + "..."
+                    
+                    # 组装信息
+                    info_parts = []
+                    if feed_name:
+                        info_parts.append(feed_name)
+                    if published_at:
+                        info_parts.append(published_at)
+                    
+                    if info_parts:
+                        info_str = "（" + " | ".join(info_parts) + "）"
+                    else:
+                        info_str = ""
+                    
+                    lines.append(f"  - {title}{info_str}")
+                else:
+                    lines.append(f"  - {str(title_item)}")
+            
             lines.append("")
 
         return "\n".join(lines).strip()
 
     # =========================
-    # ② AI 研判
+    # ③ AI 研判
     # =========================
     def _render_ai_analysis(self, ai_analysis: Any) -> str:
         if not ai_analysis or not getattr(ai_analysis, "success", False):
             return ""
 
-        lines = [
-            "🧠 **AI 综合研判**",
-            "",
-            getattr(ai_analysis, "summary", "").strip(),
-        ]
+        lines = []
+        
+        # 核心趋势
+        if getattr(ai_analysis, "core_trends", None):
+            lines.extend([
+                "🧠 **AI 综合研判**",
+                "",
+                ai_analysis.core_trends.strip(),
+                ""
+            ])
 
+        # 产业分析
+        if getattr(ai_analysis, "industry_analysis", None):
+            lines.append("📊 **产业分析**")
+            for industry in ai_analysis.industry_analysis:
+                category = industry.get('category', '未分类')
+                summary = industry.get('summary', '')
+                sentiment = industry.get('sentiment', 'Neutral')
+                
+                sentiment_emoji = {
+                    'Positive': '📈',
+                    'Negative': '📉',
+                    'Neutral': '➡️'
+                }.get(sentiment, '➡️')
+                
+                lines.append(f"{sentiment_emoji}【{category}】{summary}")
+            lines.append("")
+
+        # 结论判断
         if getattr(ai_analysis, "conclusion", None):
             lines.extend([
-                "",
                 "📌 **结论判断**",
-                ai_analysis.conclusion.strip()
+                ai_analysis.conclusion.strip(),
+                ""
             ])
 
         return "\n".join(lines).strip()
 
     # =========================
-    # ③ 持仓影响分析
+    # ④ 持仓影响分析
     # =========================
     def _render_portfolio_impact(
         self,
         portfolio: List[Dict],
         report_data: Dict[str, Any],
     ) -> str:
-        if not portfolio or not report_data:
+        if not portfolio:
             return ""
 
         lines = ["📊 **持仓相关影响分析**", ""]
 
         for stock in portfolio:
-            name = stock.get("name")
-            code = stock.get("code")
-            sector = stock.get("sector")
-
-            # 尝试在 report_data 中找到对应板块的新闻
-            related_news = report_data.get(sector, [])
-
-            if not related_news:
-                continue
+            name = stock.get("name", "未知")
+            code = stock.get("code", "")
+            sector = stock.get("sector", "")
 
             lines.append(f"🔹 **{name}（{code}）**")
-            # 只取前3条相关新闻
-            for news in related_news[:3]:
-                news_title = news.get('title') or news.get('content') or "相关动态"
-                impact = news.get("impact", "中性")
-                lines.append(f"- {news_title} ｜ 影响：{impact}")
-
+            
+            # 尝试在 report_data 中找到对应关键词的新闻
+            if 'stats' in report_data and isinstance(report_data['stats'], list):
+                for stat in report_data['stats']:
+                    word = stat.get('word', '')
+                    # 简单的关键词匹配逻辑（实际可能需要更复杂的匹配）
+                    if sector and sector.lower() in word.lower():
+                        titles = stat.get('titles', [])
+                        for i, title_item in enumerate(titles[:2]):  # 只显示前2条
+                            if isinstance(title_item, dict):
+                                title = title_item.get('title', '相关动态')
+                                if len(title) > 40:
+                                    title = title[:37] + "..."
+                                lines.append(f"  - {title}")
+            
             lines.append("")
 
         return "\n".join(lines).strip()
 
     # =========================
-    # ④ 历史趋势对比
+    # ⑤ 历史趋势对比
     # =========================
     def _render_trend_compare(
         self,
