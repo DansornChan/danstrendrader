@@ -9,17 +9,17 @@
 - auto: 根据环境自动选择（GitHub Actions 用 remote，其他用 local）
 """
 
-from trendradar.storage.base import (
-    StorageBackend,
-    NewsItem,
-    NewsData,
-    RSSItem,
-    RSSData,
-    convert_crawl_results_to_news_data,
-    convert_news_data_to_results,
-)
-from trendradar.storage.sqlite_mixin import SQLiteStorageMixin
+# 后端实现（先）
 from trendradar.storage.local import LocalStorageBackend
+
+try:
+    from trendradar.storage.remote import RemoteStorageBackend
+    HAS_REMOTE = True
+except ImportError:
+    RemoteStorageBackend = None
+    HAS_REMOTE = False
+
+# 管理器（后）
 from trendradar.storage.manager import StorageManager, get_storage_manager
 
 # ----------------------------------------------------------------------
