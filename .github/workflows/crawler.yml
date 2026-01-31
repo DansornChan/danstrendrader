@@ -89,7 +89,7 @@ jobs:
           AI_ANALYSIS_ENABLED: "true"
           AI_PROVIDER: "deepseek"
           AI_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          AI_MODEL: "deepseek-chat"
+          AI_MODEL: "deepseek/deepseek-chat"
 
           # ===== 兼容部分旧逻辑（只给 DeepSeek）=====
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
