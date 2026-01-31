@@ -3,13 +3,14 @@ import os
 import logging
 from typing import Optional
 
-from trendradar.storage import (
-    LocalStorageBackend,
-    RemoteStorageBackend,
-    R2StorageBackend,
-    HAS_REMOTE,
-    HAS_R2,
-)
+from trendradar.storage.local import LocalStorageBackend
+
+try:
+    from trendradar.storage.remote import RemoteStorageBackend
+    HAS_REMOTE = True
+except ImportError:
+    RemoteStorageBackend = None
+    HAS_REMOTE = False
 
 logger = logging.getLogger(__name__)
 
