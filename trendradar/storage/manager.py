@@ -6,6 +6,11 @@ from typing import Optional, Dict
 from trendradar.storage.local import LocalStorageBackend
 
 # ----------------------------------------------------------------------
+# 初始化日志记录器
+# ----------------------------------------------------------------------
+logger = logging.getLogger(__name__)
+
+# ----------------------------------------------------------------------
 # 可选 Remote(S3) 后端
 # ----------------------------------------------------------------------
 try:
@@ -25,8 +30,6 @@ except ImportError:
     R2StorageBackend = None
     HAS_R2 = False
 
-logger = logging.getLogger(__name__)
-
 
 class StorageManager:
     """
@@ -34,7 +37,7 @@ class StorageManager:
 
     - 负责选择 backend
     - 统一对外暴露存储接口
-    - 【新增】自动从环境变量加载缺失的配置
+    - 自动从环境变量加载缺失的配置
     """
 
     def __init__(
@@ -58,8 +61,6 @@ class StorageManager:
         # --------------------------------------------------------------
         # 智能配置加载逻辑
         # --------------------------------------------------------------
-        # 如果上层传入了配置，就用上层的；
-        # 如果没传（None或空字典），自动尝试从环境变量读取。
         self.remote_config = remote_config or {}
         if not self.remote_config:
             self.remote_config = self._load_config_from_env()
@@ -99,7 +100,7 @@ class StorageManager:
                 val = os.getenv(env_var)
                 if val:
                     config[config_key] = val
-                    break  # 找到一个就停止
+                    break
         
         return config
 
@@ -117,12 +118,10 @@ class StorageManager:
     def _select_backend(self):
         backend_type = (self.backend_type or "auto").lower()
 
-        # 构造通用参数，避免重复代码
-        # 注意：**kwargs 会传递给后端 __init__，所以后端必须支持这些参数或接收 **kwargs
+        # 构造通用参数
         common_kwargs = {
             "config": self.remote_config,
             "retention_days": self.remote_retention_days,
-            # 下面这些参数如果 R2 后端还没实现接收，会被 R2 的 **kwargs 吃掉，不会报错
             "pull_enabled": self.pull_enabled,
             "pull_days": self.pull_days,
             "timezone": self.timezone,
@@ -166,7 +165,6 @@ class StorageManager:
     
     def _has_valid_remote_config(self) -> bool:
         """简单的预检查：配置是否看起来可用"""
-        # 至少要有 Endpoint 和 Bucket
         return bool(self.remote_config.get("ENDPOINT_URL") or self.remote_config.get("S3_ENDPOINT_URL")) \
            and bool(self.remote_config.get("BUCKET_NAME") or self.remote_config.get("S3_BUCKET_NAME"))
 
@@ -178,7 +176,11 @@ class StorageManager:
     def backend(self):
         if self._backend is None:
             self._backend = self._select_backend()
-            logger.info(f"[Storage] 实际使用后端: {self.backend_name}")
+            # 确保 logger 存在
+            if 'logger' in globals():
+                logger.info(f"[Storage] 实际使用后端: {self.backend_name}")
+            else:
+                print(f"[Storage] 实际使用后端: {self.backend_name}")
         return self._backend
 
     # ------------------------------------------------------------------
