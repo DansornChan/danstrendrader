@@ -10,7 +10,7 @@ import os
 import webbrowser
 import json
 import requests
-import logging  # [修复] 引入 logging
+import logging
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 from difflib import SequenceMatcher
@@ -24,7 +24,7 @@ from trendradar.storage import convert_crawl_results_to_news_data
 from trendradar.utils.time import is_within_days
 from trendradar.ai import AIAnalyzer, AIAnalysisResult
 
-# [修复] 初始化日志记录器
+# 初始化日志记录器
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -158,7 +158,7 @@ class NewsAnalyzer:
         """判断是否应该打开浏览器"""
         return not self.is_github_actions and not self.is_docker_container
 
-    # --- 🆕 新增：获取用户持仓上下文 ---
+    # --- 获取用户持仓上下文 ---
     def _fetch_portfolio_context(self) -> str:
         """
         从 GitHub 获取用户持仓配置，并生成 A 股代码识别上下文
@@ -320,7 +320,7 @@ class NewsAnalyzer:
 
         print("[AI] 正在进行 AI 分析...")
         try:
-            # 1. 获取持仓上下文 (新增逻辑)
+            # 1. 获取持仓上下文
             portfolio_context = self._fetch_portfolio_context()
 
             ai_config = self.ctx.config.get("AI", {})
@@ -341,12 +341,11 @@ class NewsAnalyzer:
                 report_type=report_type,
                 platforms=platforms,
                 keywords=keywords,
-                portfolio_context=portfolio_context  # 👈 关键注入点
+                portfolio_context=portfolio_context
             )
 
             if result.success:
                 if result.error:
-                    # 成功但有警告（如 JSON 解析问题但使用了原始文本）
                     print(f"[AI] 分析完成（有警告: {result.error}）")
                 else:
                     print("[AI] 分析完成")
@@ -358,11 +357,9 @@ class NewsAnalyzer:
             import traceback
             error_type = type(e).__name__
             error_msg = str(e)
-            # 截断过长的错误消息
             if len(error_msg) > 200:
                 error_msg = error_msg[:200] + "..."
             print(f"[AI] 分析出错 ({error_type}): {error_msg}")
-            # 详细错误日志到 stderr
             import sys
             print(f"[AI] 详细错误堆栈:", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
@@ -372,9 +369,8 @@ class NewsAnalyzer:
         self,
         quiet: bool = False,
     ) -> Optional[Tuple[Dict, Dict, Dict, Dict, List, List]]:
-        """统一的数据加载和预处理，使用当前监控平台列表过滤历史数据"""
+        """统一的数据加载和预处理"""
         try:
-            # 获取当前配置的监控平台ID列表
             current_platform_ids = self.ctx.platform_ids
             if not quiet:
                 print(f"当前监控平台: {current_platform_ids}")
@@ -434,9 +430,7 @@ class NewsAnalyzer:
         title_info: Optional[Dict] = None,
         rss_items: Optional[List[Dict]] = None,
     ) -> Optional[Dict]:
-        """
-        从原始数据中提取独立展示区数据
-        """
+        """从原始数据中提取独立展示区数据"""
         display_config = self.ctx.config.get("DISPLAY", {})
         regions = display_config.get("REGIONS", {})
         standalone_config = display_config.get("STANDALONE", {})
@@ -582,13 +576,11 @@ class NewsAnalyzer:
                     break
             
             if not found:
-                # 如果没找到相似的，设置初始 count 为 1
                 if 'count' not in item:
                     item['count'] = 1
                 deduped.append(item)
         
-        # === 新增：强制执行数量限制 ===
-        # 读取配置中的限制，默认 3 条
+        # 强制执行数量限制
         limit = self.ctx.config.get("REPORT", {}).get("MAX_NEWS_PER_KEYWORD", 3)
         if limit > 0 and len(deduped) > limit:
             deduped = deduped[:limit]
@@ -626,7 +618,7 @@ class NewsAnalyzer:
             quiet=quiet,
         )
 
-        # === 核心优化：对统计后的 titles 进行语义去重 ===
+        # 标题去重
         if stats:
             for group in stats:
                 if 'titles' in group and group['titles']:
@@ -691,20 +683,15 @@ class NewsAnalyzer:
         has_notification = self._has_notification_configured()
         cfg = self.ctx.config
 
-        # ---------------------------------------------------------------
         # 1. AI 分析：必须使用【完整数据】(包含弱信号)
-        # ---------------------------------------------------------------
         if ai_result is None:
             ai_config = cfg.get("AI_ANALYSIS", {})
             if ai_config.get("ENABLED", False):
-                # 这里传入的是 stats 全量数据，确保 AI 能看到排名靠后的弱信号
                 ai_result = self._run_analysis_pipeline(
                     stats, rss_items, mode, report_type, id_to_name
                 )
 
-        # ---------------------------------------------------------------
         # 2. 列表展示：构建【精简数据】(隐藏弱信号)
-        # ---------------------------------------------------------------
         filtered_stats_for_display = []
         if stats:
             for group in stats:
@@ -714,7 +701,6 @@ class NewsAnalyzer:
                 
                 is_strong = len(titles) >= 2
                 if not is_strong:
-                    # 检查排名，如果没有排名数据(rank=0)，默认视为弱
                     top_rank = titles[0].get('rank', 999)
                     if top_rank > 0 and top_rank <= 10:
                         is_strong = True
@@ -722,9 +708,7 @@ class NewsAnalyzer:
                 if is_strong:
                     filtered_stats_for_display.append(group)
 
-        # ---------------------------------------------------------------
         # 3. 生成报告并推送
-        # ---------------------------------------------------------------
         report_data = self.ctx.prepare_report(filtered_stats_for_display, failed_ids, new_titles, id_to_name, mode)
         
         update_info_to_send = self.update_info if cfg["SHOW_VERSION_UPDATE"] else None
@@ -763,18 +747,22 @@ class NewsAnalyzer:
                         return False
 
             dispatcher = self.ctx.create_notification_dispatcher()
-            results = dispatcher.dispatch_all(
-                report_data=report_data,
-                report_type=report_type,
-                update_info=update_info_to_send,
-                proxy_url=self.proxy_url,
-                mode=mode,
-                html_file_path=html_file_path,
-                rss_items=rss_items,
-                rss_new_items=rss_new_items,
-                ai_analysis=ai_result, 
-                standalone_data=standalone_data,
-            )
+            
+            # ==========================================
+            # ✅ 修复重点：将所有数据打包成一个字典传给 Dispatcher
+            # ==========================================
+            full_analysis_payload = {
+                "report_data": report_data,
+                "ai_analysis": ai_result,
+                "portfolio": [],  # 暂时留空，避免因缺少列表结构而报错
+                "history_summary": {},
+                "rss_items": rss_items,
+                "mode": mode,
+                "update_info": update_info_to_send
+            }
+            
+            # 调用 dispatch_all (参数名统一为 analysis_result)
+            results = dispatcher.dispatch_all(analysis_result=full_analysis_payload)
 
             if results and any(results.values()) and cfg["PUSH_WINDOW"]["ENABLED"] and cfg["PUSH_WINDOW"]["ONCE_PER_DAY"]:
                 push_manager = self.ctx.create_push_manager()
@@ -1018,16 +1006,15 @@ class NewsAnalyzer:
                 dummy_result = AIAnalysisResult(success=True, core_trends="无重大市场异动")
                 self._export_json_for_stock_analysis(dummy_result)
             
-            # === [修复] 尝试保存 AI 分析结果到远程存储 ===
-            # 使用正确的 save_ai_result 方法，而不是错误的 save_daily_trends
+            # 尝试保存 AI 分析结果到远程存储
             if ai_result and hasattr(self.storage_manager, "save_ai_result"):
                 try:
                     # 将 AI 结果对象转换为字典以便存储
                     ai_data_dict = {
                         "core_trends": ai_result.core_trends,
-                        "industry_analysis": ai_result.stock_analysis_data, # 映射到 industry
+                        "industry_analysis": ai_result.stock_analysis_data,
                         "market_sentiment": getattr(ai_result, "sentiment", "Neutral"),
-                        "raw_json": self._export_json_for_stock_analysis(ai_result) # 复用导出逻辑
+                        "raw_json": self._export_json_for_stock_analysis(ai_result)
                     }
                     self.storage_manager.save_ai_result(self.ctx.format_date(), ai_data_dict)
                     print(f"[存储] AI 分析结果已保存到 {self.storage_manager.backend_name}")
