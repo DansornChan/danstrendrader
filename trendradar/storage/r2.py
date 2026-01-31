@@ -4,8 +4,9 @@ Cloudflare R2 Storage Backend for TrendRadar
 """
 
 import json
+import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 import boto3
 from botocore.client import Config
@@ -56,6 +57,9 @@ class R2StorageBackend(StorageBackend):
 
     def _today(self) -> str:
         return datetime.utcnow().strftime("%Y-%m-%d")
+    
+    def _yesterday(self) -> str:
+        return (datetime.utcnow() - timedelta(days=1)).strftime("%Y-%m-%d")
 
     # ------------------------------------------------------------------
     # 新闻数据
@@ -153,6 +157,140 @@ class R2StorageBackend(StorageBackend):
                         Bucket=self.bucket,
                         Key=obj["Key"],
                     )
+
+    # ------------------------------------------------------------------
+    # 新实现的抽象方法
+    # ------------------------------------------------------------------
+
+    def cleanup(self) -> bool:
+        """
+        清理临时数据或过期数据
+        """
+        try:
+            self.apply_retention()
+            return True
+        except Exception:
+            return False
+
+    def cleanup_old_data(self) -> bool:
+        """
+        清理旧数据
+        """
+        return self.cleanup()
+
+    def detect_new_titles(self, current_titles: List[str], source: str = "") -> List[str]:
+        """
+        检测新标题
+        """
+        # 获取昨天的数据进行比较
+        yesterday_data = self.load_news_by_date(self._yesterday())
+        if not yesterday_data:
+            return current_titles  # 如果没有昨天数据，所有都是新的
+        
+        # 提取昨天的标题
+        yesterday_titles = []
+        for item in yesterday_data.get("data", []):
+            if isinstance(item, dict) and "title" in item:
+                yesterday_titles.append(item["title"])
+        
+        # 找出不在昨天标题中的新标题
+        new_titles = [title for title in current_titles if title not in yesterday_titles]
+        return new_titles
+
+    def get_latest_crawl_data(self) -> Optional[Dict]:
+        """
+        获取最新的爬虫数据
+        """
+        # 获取所有日期
+        dates = self.list_dates("news")
+        if not dates:
+            return None
+        
+        # 返回最新日期的数据
+        latest_date = dates[-1]
+        return self.load_news_by_date(latest_date)
+
+    def get_today_all_data(self) -> Optional[Dict]:
+        """
+        获取今天的所有数据
+        """
+        return self.load_news_by_date(self._today())
+
+    def has_pushed_today(self) -> bool:
+        """
+        检查今天是否已经推送过
+        """
+        # 检查是否存在推送记录文件
+        push_key = self._key("push", f"{self._today()}.json")
+        try:
+            self.s3.head_object(Bucket=self.bucket, Key=push_key)
+            return True
+        except Exception:
+            return False
+
+    def is_first_crawl_today(self) -> bool:
+        """
+        检查是否是今天的第一次爬取
+        """
+        # 检查今天是否已经有数据文件
+        news_key = self._key("news", f"{self._today()}.json")
+        try:
+            self.s3.head_object(Bucket=self.bucket, Key=news_key)
+            return False  # 文件存在，不是第一次
+        except Exception:
+            return True  # 文件不存在，是第一次
+
+    def record_push(self, push_data: Dict) -> bool:
+        """
+        记录推送信息
+        """
+        date = push_data.get("date", self._today())
+        key = self._key("push", f"{date}.json")
+        
+        # 添加时间戳
+        push_data["pushed_at"] = datetime.utcnow().isoformat()
+        
+        self.s3.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=json.dumps(push_data, ensure_ascii=False).encode("utf-8"),
+            ContentType="application/json",
+        )
+        return True
+
+    def save_html_report(self, html_content: str, filename: str) -> bool:
+        """
+        保存HTML报告
+        """
+        key = self._key("reports", filename)
+        
+        self.s3.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=html_content.encode("utf-8"),
+            ContentType="text/html",
+        )
+        return True
+
+    def save_txt_snapshot(self, txt_content: str, filename: str) -> bool:
+        """
+        保存文本快照
+        """
+        key = self._key("snapshots", filename)
+        
+        self.s3.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=txt_content.encode("utf-8"),
+            ContentType="text/plain",
+        )
+        return True
+
+    def supports_txt(self) -> bool:
+        """
+        是否支持文本快照
+        """
+        return True
 
     # ------------------------------------------------------------------
     # StorageBackend 接口兼容
