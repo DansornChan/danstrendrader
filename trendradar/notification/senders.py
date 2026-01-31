@@ -18,6 +18,7 @@
 import smtplib
 import time
 import json
+import textwrap  # [新增] 用于文本切片
 from datetime import datetime
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
@@ -26,7 +27,6 @@ from email.utils import formataddr, formatdate, make_msgid
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
-import textwrap
 
 import requests
 
@@ -479,8 +479,7 @@ def send_to_telegram(
     print(f"{log_prefix}所有 {len(final_batches)} 批次发送完成 [{report_type}]")
     return True
 
-# ... (后面的 send_to_email, send_to_ntfy 等保持原样即可，或者为了文件完整性你直接保留原来的) ...
-# 为了确保你复制方便，我下面把剩下的函数也贴完整
+
 def send_to_email(
     from_email: str,
     password: str,
