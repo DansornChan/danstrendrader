@@ -30,12 +30,10 @@ logger = logging.getLogger(__name__)
 
 class StorageManager:
     """
-    存储管理器
+    存储管理器（Facade）
 
-    负责：
-    - 根据运行环境选择存储后端
-    - 管理 backend 生命周期
-    - 暴露统一的 storage 接口
+    - 负责选择 backend
+    - 统一对外暴露存储接口
     """
 
     def __init__(
@@ -51,7 +49,6 @@ class StorageManager:
         pull_days: int = 0,
         timezone: str = "Asia/Shanghai",
     ):
-        # 基础配置
         self.backend_type = backend_type
         self.data_dir = data_dir
         self.enable_txt = enable_txt
@@ -63,10 +60,7 @@ class StorageManager:
         self.pull_days = pull_days
         self.timezone = timezone
 
-        # 当前实际使用的 backend 名称（local / remote / r2）
         self.backend_name: str = "unknown"
-
-        # backend 实例（lazy init）
         self._backend = None
 
     # ------------------------------------------------------------------
@@ -77,25 +71,16 @@ class StorageManager:
         return os.getenv("GITHUB_ACTIONS") == "true"
 
     # ------------------------------------------------------------------
-    # 后端选择逻辑
+    # 后端选择
     # ------------------------------------------------------------------
 
     def _select_backend(self):
-        """
-        根据 backend_type 和运行环境选择后端
-        """
         backend_type = (self.backend_type or "auto").lower()
 
-        # ==============================================================
-        # 1️⃣ 强制使用 R2
-        # ==============================================================
         if backend_type == "r2":
             if not HAS_R2:
-                raise RuntimeError("R2StorageBackend 不可用，请确认 r2.py 与依赖已安装")
-
-            logger.info("[Storage] 使用 Cloudflare R2 后端（强制）")
+                raise RuntimeError("R2StorageBackend 不可用")
             self.backend_name = "r2"
-
             return R2StorageBackend(
                 config=self.remote_config,
                 retention_days=self.remote_retention_days,
@@ -104,16 +89,10 @@ class StorageManager:
                 timezone=self.timezone,
             )
 
-        # ==============================================================
-        # 2️⃣ 强制使用 Remote(S3 兼容)
-        # ==============================================================
         if backend_type == "remote":
             if not HAS_REMOTE:
-                raise RuntimeError("RemoteStorageBackend 不可用，请确认 boto3 已安装")
-
-            logger.info("[Storage] 使用 Remote(S3) 后端（强制）")
+                raise RuntimeError("RemoteStorageBackend 不可用")
             self.backend_name = "remote"
-
             return RemoteStorageBackend(
                 config=self.remote_config,
                 retention_days=self.remote_retention_days,
@@ -122,16 +101,10 @@ class StorageManager:
                 timezone=self.timezone,
             )
 
-        # ==============================================================
-        # 3️⃣ 自动模式
-        # ==============================================================
         if backend_type == "auto":
-            # GitHub Actions：优先 R2
             if self._is_github_actions():
                 if HAS_R2:
-                    logger.info("[Storage] GitHub Actions 检测到，自动使用 R2")
                     self.backend_name = "r2"
-
                     return R2StorageBackend(
                         config=self.remote_config,
                         retention_days=self.remote_retention_days,
@@ -139,11 +112,8 @@ class StorageManager:
                         pull_days=self.pull_days,
                         timezone=self.timezone,
                     )
-
                 if HAS_REMOTE:
-                    logger.info("[Storage] GitHub Actions 检测到，使用 Remote(S3)")
                     self.backend_name = "remote"
-
                     return RemoteStorageBackend(
                         config=self.remote_config,
                         retention_days=self.remote_retention_days,
@@ -152,10 +122,7 @@ class StorageManager:
                         timezone=self.timezone,
                     )
 
-            # 非 Actions / 兜底：本地存储
-            logger.info("[Storage] 使用本地 LocalStorage 后端")
             self.backend_name = "local"
-
             return LocalStorageBackend(
                 data_dir=self.data_dir,
                 enable_txt=self.enable_txt,
@@ -164,27 +131,45 @@ class StorageManager:
                 timezone=self.timezone,
             )
 
-        # ==============================================================
-        # 未知类型
-        # ==============================================================
         raise ValueError(f"未知 backend_type: {backend_type}")
 
     # ------------------------------------------------------------------
-    # 对外接口
+    # Backend 懒加载
     # ------------------------------------------------------------------
 
     @property
     def backend(self):
-        """
-        获取当前 backend（懒加载）
-        """
         if self._backend is None:
             self._backend = self._select_backend()
+            logger.info(f"[Storage] 实际使用后端: {self.backend_name}")
         return self._backend
+
+    # ------------------------------------------------------------------
+    # 🔥 关键：方法代理（Facade 核心）
+    # ------------------------------------------------------------------
+
+    def save_news_data(self, *args, **kwargs):
+        return self.backend.save_news_data(*args, **kwargs)
+
+    def cleanup_old_data(self, *args, **kwargs):
+        return self.backend.cleanup_old_data(*args, **kwargs)
+
+    def pull_recent_data(self, *args, **kwargs):
+        if hasattr(self.backend, "pull_recent_data"):
+            return self.backend.pull_recent_data(*args, **kwargs)
+
+    def __getattr__(self, item):
+        """
+        兜底代理：backend 有的方法，manager 自动透传
+        """
+        backend = object.__getattribute__(self, "backend")
+        if hasattr(backend, item):
+            return getattr(backend, item)
+        raise AttributeError(f"'StorageManager' object has no attribute '{item}'")
 
 
 # ----------------------------------------------------------------------
-# 便捷函数
+# 工厂方法
 # ----------------------------------------------------------------------
 
 def get_storage_manager(**kwargs) -> StorageManager:
