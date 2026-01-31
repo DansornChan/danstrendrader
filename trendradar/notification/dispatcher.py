@@ -4,54 +4,35 @@
 
 负责串联：
 renderer → splitter → sender
+
+⚠️ 这是一个兼容实现：
+- 兼容 NotificationDispatcher()
+- 兼容 NotificationDispatcher(config=xxx)
+- 不阻断主流程
 """
 
-from typing import Dict, Any, List
-
-from .renderer import NotificationRenderer
-from .splitter import NotificationSplitter
-from .senders import TelegramSender
+from typing import Any, Dict
 
 
 class NotificationDispatcher:
     def __init__(self, *args, **kwargs):
         """
         兼容不同版本调用方式
-        - 支持 NotificationDispatcher()
-        - 支持 NotificationDispatcher(config=xxx)
         """
-        self.config = kwargs.get("config", None)
+        self.config = kwargs.get("config", {}) or {}
 
     def dispatch(self, *args, **kwargs):
-        return
-        
+        """
         主入口：将分析结果分发到各推送渠道
+
+        当前版本为安全兜底实现：
+        - 不做复杂调度
+        - 不抛异常
+        - 保证主流程继续执行
         """
         try:
-            print("📦 开始渲染通知内容...")
-            rendered_blocks = self.renderer.render(analysis_result)
-
-            if not rendered_blocks:
-                print("⚠️ renderer 未生成任何内容，跳过推送")
-                return
-
-            print(f"🧩 渲染完成，共 {len(rendered_blocks)} 个内容块")
-
-            print("✂️ 开始拆分消息...")
-            messages = self.splitter.split(rendered_blocks)
-
-            if not messages:
-                print("⚠️ splitter 未生成任何消息，跳过推送")
-                return
-
-            print(f"📨 拆分完成，共 {len(messages)} 条消息")
-
-            for sender in self.senders:
-                try:
-                    print(f"🚀 使用 {sender.__class__.__name__} 推送中...")
-                    sender.send(messages)
-                except Exception as e:
-                    print(f"❌ Sender {sender.__class__.__name__} 推送失败: {e}")
-
+            # Dispatcher 在当前仓库中不是强依赖
+            # 真正的推送逻辑在 send_to_xxx 中完成
+            return
         except Exception as e:
             print(f"❌ NotificationDispatcher 执行失败: {e}")
