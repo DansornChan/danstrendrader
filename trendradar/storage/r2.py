@@ -17,24 +17,22 @@ from trendradar.storage.base import StorageBackend
 class R2StorageBackend(StorageBackend):
     backend_name = "cloudflare-r2"
 
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict, retention_days: int = 0, **kwargs):
         """
-        config 示例:
-        {
-            "ENDPOINT_URL": "https://xxxxx.r2.cloudflarestorage.com",
-            "BUCKET_NAME": "trendradar",
-            "ACCESS_KEY_ID": "...",
-            "SECRET_ACCESS_KEY": "...",
-            "PREFIX": "trendradar",
-            "RETENTION_DAYS": 30
-        }
+        修正初始化参数：
+        1. 接收 config
+        2. 接收显式传入的 retention_days
+        3. 接收 **kwargs 以防止传入额外参数导致报错
         """
         self.endpoint_url = config.get("ENDPOINT_URL")
         self.bucket = config.get("BUCKET_NAME")
         self.access_key = config.get("ACCESS_KEY_ID")
         self.secret_key = config.get("SECRET_ACCESS_KEY")
         self.prefix = config.get("PREFIX", "trendradar").strip("/")
-        self.retention_days = int(config.get("RETENTION_DAYS", 0))
+
+        # 优先使用传入的 retention_days，如果没有则从 config 读取
+        r_days = retention_days or config.get("RETENTION_DAYS", 0)
+        self.retention_days = int(r_days)
 
         if not all([self.endpoint_url, self.bucket, self.access_key, self.secret_key]):
             raise ValueError("R2 存储配置不完整")
@@ -103,15 +101,14 @@ class R2StorageBackend(StorageBackend):
         if not old_data:
             return current_titles
         
-        # 假设 old_data 结构中有 titles 或 items 字段，这里做个通用处理
-        # 实际需根据你的 news_data 结构调整
         old_titles = set()
+        # 兼容性处理：尝试从 data 字段中解析标题
         if "data" in old_data and isinstance(old_data["data"], dict):
-            # 遍历所有源
             for source, items in old_data["data"].items():
-                for item in items:
-                    if isinstance(item, dict) and "title" in item:
-                        old_titles.add(item["title"])
+                if isinstance(items, list):
+                    for item in items:
+                        if isinstance(item, dict) and "title" in item:
+                            old_titles.add(item["title"])
                         
         new_items = [t for t in current_titles if t not in old_titles]
         return new_items
@@ -173,7 +170,7 @@ class R2StorageBackend(StorageBackend):
         self.apply_retention()
 
     # ------------------------------------------------------------------
-    # 内部/辅助方法 (复用及实现细节)
+    # 内部/辅助方法
     # ------------------------------------------------------------------
 
     def _save_json(self, key: str, data: Any) -> bool:
@@ -218,11 +215,9 @@ class R2StorageBackend(StorageBackend):
         prefix = self._key(category)
         paginator = self.s3.get_paginator("list_objects_v2")
         dates = []
-        # 处理分页，以防文件过多
         try:
             for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
                 for obj in page.get("Contents", []):
-                    # 获取文件名并去掉扩展名
                     name = obj["Key"].split("/")[-1]
                     if name.endswith(".json"):
                         dates.append(name.replace(".json", ""))
@@ -238,17 +233,15 @@ class R2StorageBackend(StorageBackend):
         paginator = self.s3.get_paginator("list_objects_v2")
         
         try:
-            # 遍历整个 prefix 下的文件
             for page in paginator.paginate(Bucket=self.bucket, Prefix=self.prefix):
                 for obj in page.get("Contents", []):
-                    # 检查 LastModified
                     if obj["LastModified"].replace(tzinfo=None) < cutoff:
                         print(f"Removing old file: {obj['Key']}")
                         self.s3.delete_object(Bucket=self.bucket, Key=obj['Key'])
         except Exception as e:
             print(f"Retention cleanup failed: {e}")
 
-    # RSS 兼容 (可保持为空或简单实现)
+    # RSS 兼容
     def save_rss_data(self, rss_data) -> bool:
         return True
 
