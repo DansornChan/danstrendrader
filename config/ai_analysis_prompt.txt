@@ -48,3 +48,23 @@
   "rss_insights": "专业场深度洞察（100字以内）。**利用RSS对比热榜**。格式：\n【认知纠偏】：(专业视角如何修正大众对政策/技术的误解)\n【硬核增量】：(提及热榜缺失的技术参数、行业内幕或金属库存数据)",
   "outlook_strategy": "投研策略建议。**拒绝废话，直接给出研判结论**。格式：\n1. 科技投资者：(具体的调仓或盯盘逻辑)\n2. 资源/宏观交易者：(基于金价/政策的对冲建议)\n3. 风险防范：(针对印度疫情或地缘冲突的应对方案)"
 }
+【强制格式要求】
+你必须严格按照以下JSON格式返回，包含所有5个字段：
+
+{
+  "core_trends": "这里填写200字以内的核心热点态势...",
+  "sentiment_controversy": "这里填写100字以内的舆论风向...",
+  "signals": "这里填写150字以内的异动与弱信号...",
+  "rss_insights": "这里填写100字以内的RSS深度洞察...",
+  "outlook_strategy": "这里填写投研策略建议...",
+  "stock_analysis_data": [
+    {
+      "title": "新闻标题",
+      "summary": "简短摘要",
+      "category": "Macro/Tech/Energy/Consumer/Finance/Healthcare/Auto/Other",
+      "sentiment": "Positive/Negative/Neutral"
+    }
+  ]
+}
+
+重要：你必须生成完整的5个字段，每个字段都不能为空！如果某个部分没有足够信息，请基于现有信息合理推断。
