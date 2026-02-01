@@ -2,11 +2,15 @@
 """
 通知分发调度器（Dispatcher）
 兼容 TrendRadar v4 / v5
+支持：
+- AI / 报告类通知（renderer → splitter → sender）
+- 信号 / 大宗商品即时通知（signal_formatter → sender）
 """
 
 from .renderer import NotificationRenderer
 from .splitter import NotificationSplitter
 from .senders import TelegramSender
+from .signal_formatter import format_signal_for_telegram
 
 
 class NotificationDispatcher:
@@ -25,60 +29,78 @@ class NotificationDispatcher:
 
     def dispatch_all(self, analysis_result=None, report_data=None, **kwargs):
         """
-        兼容旧代码：同时支持传入 analysis_result 或 report_data
-        现在支持从 kwargs 中提取所有需要的参数
+        统一分发入口
+        - AI 报告 / 日报 / 周报 → renderer
+        - signals → signal_formatter（直发）
         """
-        # 构建一个完整的数据字典，包含所有参数
         final_data = {}
-        
-        # 1. 如果有 analysis_result，使用它（可能是完整数据）
+
+        # 1. analysis_result
         if analysis_result is not None:
             if isinstance(analysis_result, dict):
                 final_data.update(analysis_result)
             else:
-                # 如果是其他类型，尝试转换为字典
-                final_data['analysis_result'] = analysis_result
-        
-        # 2. 如果有 report_data，作为 report_data 键
+                final_data["analysis_result"] = analysis_result
+
+        # 2. report_data
         if report_data is not None:
-            final_data['report_data'] = report_data
-        
-        # 3. 从 kwargs 中提取其他关键参数
-        for key in ['ai_analysis', 'rss_items', 'rss_new_items', 
-                   'standalone_data', 'portfolio', 'history_summary',
-                   'mode', 'update_info']:
+            final_data["report_data"] = report_data
+
+        # 3. 其他参数
+        for key in [
+            "ai_analysis",
+            "rss_items",
+            "rss_new_items",
+            "standalone_data",
+            "portfolio",
+            "history_summary",
+            "mode",
+            "update_info",
+            "signals",  # ⭐ 新增
+        ]:
             if key in kwargs:
                 final_data[key] = kwargs[key]
-        
-        # 4. 如果 report_data 已经是一个包含所有数据的字典（新格式）
+
+        # 4. 新格式 report_data 直接覆盖
         if isinstance(report_data, dict):
-            # 检查 report_data 是否已经包含了我们需要的数据
-            if 'stats' in report_data and 'rss_items' in report_data:
-                # 这已经是完整数据，直接使用
+            if "stats" in report_data and "rss_items" in report_data:
                 final_data = report_data
-            elif 'report_data' in report_data:
-                # 如果 report_data 中包含 report_data 键，提取它
+            elif "report_data" in report_data:
                 final_data = report_data
-        
-        # 调试信息
+
         print(f"[Dispatcher] 最终数据键: {list(final_data.keys())}")
-        if 'rss_items' in final_data:
-            rss_count = len(final_data['rss_items']) if isinstance(final_data['rss_items'], list) else 0
-            print(f"[Dispatcher] RSS项目数: {rss_count}")
-        
+
+        # ==============================
+        # ⭐ 信号 / 大宗商品 → 直发通道
+        # ==============================
+        if "signals" in final_data:
+            print("📊 检测到 signals，使用 signal formatter")
+            try:
+                messages = format_signal_for_telegram(final_data["signals"])
+                if messages:
+                    self.sender.send(messages)
+                    print("✅ Signal Telegram 推送完成")
+                else:
+                    print("⚠️ signals 为空，未发送")
+            except Exception as e:
+                print(f"❌ Signal 推送失败: {e}")
+            return  # ❗ 不再进入 AI 报告流程
+
+        # ==============================
+        # 默认：AI / 报告类流程
+        # ==============================
         self._dispatch_impl(final_data)
 
     def _dispatch_impl(self, analysis_result):
         try:
-            print("📦 开始生成 Telegram 通知...")
+            print("📦 开始生成 Telegram 通知（报告模式）...")
 
             blocks = self.renderer.render(analysis_result)
             if not blocks:
                 print("⚠️ 没有生成任何通知内容")
                 return
 
-            # 调试：打印每个块的预览
-            print(f"[Dispatcher] 渲染后的内容块:")
+            print("[Dispatcher] 渲染后的内容块:")
             for key, content in blocks.items():
                 if content and content.strip():
                     preview = content[:100] + "..." if len(content) > 100 else content
@@ -92,7 +114,7 @@ class NotificationDispatcher:
                 return
 
             self.sender.send(messages)
-            print("✅ Telegram 推送完成")
+            print("✅ Telegram 推送完成（报告模式）")
 
         except Exception as e:
             print(f"❌ Telegram 推送失败: {e}")
