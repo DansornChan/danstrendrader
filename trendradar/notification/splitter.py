@@ -31,17 +31,22 @@ class NotificationSplitter:
                 "text": rendered.get("full_text", ""),
             }]
 
+        # 更新ordered_keys，包含所有可能的键
         ordered_keys = [
             "hot_topics",
-            "portfolio_impact",
+            "rss_items",           # 新增RSS新闻
+            "standalone_data",     # 新增独立展示区
             "ai_analysis",
+            "portfolio_impact",
             "trend_compare",
         ]
 
         priority = 1
         for key in ordered_keys:
             text = rendered.get(key)
-            if not text:
+            if not text or not text.strip():
+                # 打印调试信息
+                print(f"[Splitter] 跳过空内容或缺失的键: {key}")
                 continue
 
             if len(text) <= self.max_length:
@@ -57,6 +62,11 @@ class NotificationSplitter:
                 )
 
             priority += 1
+
+        # 打印拆分结果
+        print(f"[Splitter] 拆分完成，生成 {len(messages)} 条消息")
+        for msg in messages:
+            print(f"[Splitter] 消息: key={msg['key']}, priority={msg['priority']}, 长度={len(msg['text'])}")
 
         return messages
 
