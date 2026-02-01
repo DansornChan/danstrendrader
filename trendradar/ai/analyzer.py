@@ -411,3 +411,54 @@ class AIAnalyzer:
                 return text[start_idx:].strip()
         except Exception:
             return ""
+# =========================
+# 新闻重要性评分（供 renderer 使用）
+# =========================
+
+POLICY_KEYWORDS = [
+    "国务院", "央行", "证监会", "财政部", "发改委", "工信部",
+    "美联储", "欧央行", "日本央行"
+]
+
+CAPITAL_KEYWORDS = [
+    "投资", "补贴", "财政", "货币", "扩产", "并购",
+    "募资", "定增", "融资", "税率", "招标"
+]
+
+FORWARD_KEYWORDS = [
+    "将于", "预计", "计划", "有望", "下一步", "未来"
+]
+
+
+def calc_importance_score(
+    text: str,
+    hit_words: list | None = None,
+    is_signal: bool = False
+) -> int:
+    """
+    给单条新闻计算重要性分数（用于分板块重点新闻筛选）
+    """
+    score = 0
+
+    for k in POLICY_KEYWORDS:
+        if k in text:
+            score += 3
+            break
+
+    for k in CAPITAL_KEYWORDS:
+        if k in text:
+            score += 2
+            break
+
+    for k in FORWARD_KEYWORDS:
+        if k in text:
+            score += 2
+            break
+
+    if hit_words:
+        score += min(len(hit_words), 3)
+
+    if is_signal:
+        score += 1
+
+    return score
