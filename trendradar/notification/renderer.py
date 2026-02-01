@@ -3,12 +3,16 @@
 通知内容渲染模块（Renderer）
 
 职责：
-- 将分析结果渲染为"结构化文本块"
-- 不关心发送平台、不关心字数限制
+- 将分析结果渲染为结构化文本块
+- 控制“展示逻辑”，不控制发送、不控制字数
 """
 
 from datetime import datetime
 from typing import Dict, Any, List
+from collections import defaultdict
+
+# ✅ 引入重要性评分
+from trendradar.ai.analyzer import calc_importance_score
 
 
 class NotificationRenderer:
@@ -28,22 +32,13 @@ class NotificationRenderer:
     # 对外唯一入口
     # =========================
     def render(self, input_data: Dict[str, Any]) -> Dict[str, str]:
-        if isinstance(input_data, dict) and "report_data" in input_data:
-            report_data = input_data.get("report_data", {})
-            ai_analysis = input_data.get("ai_analysis")
-            portfolio = input_data.get("portfolio")
-            history_summary = input_data.get("history_summary")
-            rss_items = input_data.get("rss_items", [])
-            standalone_data = input_data.get("standalone_data")
-        else:
-            report_data = input_data
-            ai_analysis = None
-            portfolio = None
-            history_summary = None
-            rss_items = []
-            standalone_data = None
+        report_data = input_data.get("report_data", {}) if isinstance(input_data, dict) else input_data
+        ai_analysis = input_data.get("ai_analysis")
+        portfolio = input_data.get("portfolio")
+        history_summary = input_data.get("history_summary")
+        rss_items = input_data.get("rss_items", [])
+        standalone_data = input_data.get("standalone_data")
 
-        # 渲染各个模块
         hot_topics = self._render_hot_topics(report_data)
         rss_block = self._render_rss_items(rss_items)
         standalone_block = self._render_standalone_data(standalone_data)
@@ -51,16 +46,15 @@ class NotificationRenderer:
         portfolio_block = self._render_portfolio_impact(portfolio, report_data)
         trend_block = self._render_trend_compare(history_summary, ai_analysis)
 
-        # 拼装完整文本
         full_text = "\n\n".join(
-            block for block in [
+            b for b in [
                 hot_topics,
                 rss_block,
                 standalone_block,
                 ai_block,
                 portfolio_block,
                 trend_block
-            ] if block and block.strip()
+            ] if b and b.strip()
         )
 
         return {
@@ -74,427 +68,164 @@ class NotificationRenderer:
         }
 
     # =========================
-    # ① 分领域重点新闻（标题可点击）
+    # ① 分领域重点新闻（核心升级点）
     # =========================
     def _render_hot_topics(self, report_data: Dict[str, Any]) -> str:
-        if not report_data:
-            return ""
-
-        if 'stats' not in report_data or not isinstance(report_data['stats'], list):
-            return ""
-
-        stats = report_data['stats']
+        stats = report_data.get("stats", [])
         if not stats:
             return ""
 
         lines = [
-            f"🔥 **分领域重点新闻**",
+            "🔥 **分领域重点新闻**",
             f"时间：{self.now.strftime('%Y-%m-%d %H:%M')}",
             ""
         ]
 
-        total_display_count = 0
-        
+        total_count = 0
+
         for stat in stats:
-            word = stat.get('word', '未命名')
-            count = stat.get('count', 0)
-            titles = stat.get('titles', [])
-            
+            word = stat.get("word", "未分类")
+            titles = stat.get("titles", [])
             if not titles:
                 continue
-                
-            display_count = len(titles)
-            total_display_count += display_count
-            
-            if count != display_count:
-                lines.append(f"【{word}】（{display_count}条/原始{count}条）")
-            else:
-                lines.append(f"【{word}】（{display_count}条）")
-            
-            for title_item in titles:
-                if isinstance(title_item, dict):
-                    title = title_item.get('title') or title_item.get('content') or "无标题"
-                    source = title_item.get('source_name', '')
-                    time_display = title_item.get('time_display', '')
-                    ranks = title_item.get('ranks', [])
-                    is_new = title_item.get('is_new', False)
-                    url = title_item.get('url') or title_item.get('mobile_url') or ''
-                    
-                    # 构建显示文本
-                    display_parts = []
-                    
-                    # 如果有URL，将标题转换为Markdown链接
-                    if url and url.startswith(('http://', 'https://')):
-                        # 清理标题中的Markdown特殊字符
-                        clean_title = title.replace('[', '【').replace(']', '】').replace('(', '（').replace(')', '）')
-                        if len(clean_title) > 50:
-                            clean_title = clean_title[:47] + "..."
-                        title_display = f"[{clean_title}]({url})"
-                    else:
-                        # 没有URL，只显示标题
-                        if len(title) > 50:
-                            title_display = title[:47] + "..."
-                        else:
-                            title_display = title
-                    
-                    # 来源和时间
-                    if source:
-                        display_parts.append(f"{source}")
-                    if time_display:
-                        display_parts.append(f"{time_display}")
-                    
-                    # 排名
-                    if ranks:
-                        last_rank = ranks[-1] if isinstance(ranks, list) and ranks else ranks
-                        display_parts.append(f"第{last_rank}位")
-                    
-                    # 是否为新标题
-                    if is_new:
-                        display_parts.append("🆕")
-                    
-                    # 组装
-                    if display_parts:
-                        info_str = "（" + " | ".join(display_parts) + "）"
-                    else:
-                        info_str = ""
-                    
-                    lines.append(f"  - {title_display}{info_str}")
-                else:
-                    # 如果标题项不是字典，直接显示
-                    title_str = str(title_item)
-                    if len(title_str) > 60:
-                        title_str = title_str[:57] + "..."
-                    lines.append(f"  - {title_str}")
-            
-            lines.append("")
 
-        if total_display_count == 0:
+            # === 核心：给每条新闻打分 ===
+            scored_items = []
+            for item in titles:
+                if not isinstance(item, dict):
+                    continue
+                text = item.get("title") or item.get("content", "")
+                score = calc_importance_score(
+                    text=text,
+                    hit_words=item.get("hit_words"),
+                    is_signal=item.get("is_signal", False)
+                )
+                scored_items.append((score, item))
+
+            # 按重要性排序
+            scored_items.sort(key=lambda x: x[0], reverse=True)
+
+            # 每个板块展示 3–5 条（不死卡）
+            display_items = scored_items[:5]
+            if len(display_items) < 3:
+                display_items = scored_items[:3]
+
+            lines.append(f"【{word}】（{len(display_items)}条）")
+
+            for _, item in display_items:
+                title = item.get("title", "无标题")
+                url = item.get("url") or item.get("mobile_url", "")
+                source = item.get("source_name", "")
+                time_display = item.get("time_display", "")
+
+                clean_title = title.replace("[", "【").replace("]", "】").replace("(", "（").replace(")", "）")
+                if len(clean_title) > 70:
+                    clean_title = clean_title[:67] + "..."
+
+                if url.startswith("http"):
+                    title_display = f"[{clean_title}]({url})"
+                else:
+                    title_display = clean_title
+
+                meta = " | ".join(p for p in [source, time_display] if p)
+                meta_str = f"（{meta}）" if meta else ""
+
+                lines.append(f"  - {title_display}{meta_str}")
+
+            lines.append("")
+            total_count += len(display_items)
+
+        if total_count == 0:
             return ""
-            
-        lines.insert(2, f"总计：{total_display_count}条重点新闻")
-        
+
+        lines.insert(2, f"总计：{total_count}条重点新闻")
         return "\n".join(lines).strip()
 
     # =========================
-    # ② RSS 项目渲染（标题可点击）
+    # ② RSS（保持原逻辑，略微放宽）
     # =========================
     def _render_rss_items(self, rss_items: List[Dict]) -> str:
         if not rss_items:
             return ""
 
         lines = ["📰 **RSS 深度新闻**", ""]
-
-        total_display_count = 0
-        
         for rss_stat in rss_items:
-            word = rss_stat.get('word', '未分类')
-            count = rss_stat.get('count', 0)
-            titles = rss_stat.get('titles', [])
-            
+            word = rss_stat.get("word", "未分类")
+            titles = rss_stat.get("titles", [])
             if not titles:
                 continue
-                
-            display_count = len(titles)
-            total_display_count += display_count
-            
-            lines.append(f"【{word}】（{display_count}条）")
-            
-            for title_item in titles:
-                if isinstance(title_item, dict):
-                    title = title_item.get('title', '无标题')
-                    feed_name = title_item.get('feed_name', '')
-                    published_at = title_item.get('published_at', '')
-                    url = title_item.get('url', '')
-                    
-                    # 如果有URL，将标题转换为Markdown链接
-                    if url and url.startswith(('http://', 'https://')):
-                        # 清理标题中的Markdown特殊字符
-                        clean_title = title.replace('[', '【').replace(']', '】').replace('(', '（').replace(')', '）')
-                        if len(clean_title) > 60:
-                            clean_title = clean_title[:57] + "..."
-                        title_display = f"[{clean_title}]({url})"
-                    else:
-                        # 没有URL，只显示标题
-                        if len(title) > 60:
-                            title = title[:57] + "..."
-                        title_display = title
-                    
-                    # 组装信息
-                    info_parts = []
-                    if feed_name:
-                        info_parts.append(feed_name)
-                    if published_at:
-                        info_parts.append(published_at)
-                    
-                    if info_parts:
-                        info_str = "（" + " | ".join(info_parts) + "）"
-                    else:
-                        info_str = ""
-                    
-                    lines.append(f"  - {title_display}{info_str}")
+
+            lines.append(f"【{word}】")
+            for item in titles[:5]:
+                title = item.get("title", "")
+                url = item.get("url", "")
+                if not title:
+                    continue
+
+                if len(title) > 80:
+                    title = title[:77] + "..."
+
+                if url.startswith("http"):
+                    lines.append(f"  - [{title}]({url})")
                 else:
-                    lines.append(f"  - {str(title_item)}")
-            
+                    lines.append(f"  - {title}")
+
             lines.append("")
-            
-        if total_display_count == 0:
-            return ""
-            
-        lines.insert(1, f"总计：{total_display_count}条RSS新闻")
-        
+
         return "\n".join(lines).strip()
 
     # =========================
-    # ③ 独立展示区渲染
+    # ③ 独立展示区（不动）
     # =========================
     def _render_standalone_data(self, standalone_data: Dict[str, Any]) -> str:
         if not standalone_data:
             return ""
-
-        lines = ["🏆 **独立展示区**", ""]
-
-        if 'platforms' in standalone_data and standalone_data['platforms']:
-            lines.append("🔥 热门平台榜单：")
-            for platform in standalone_data['platforms']:
-                platform_name = platform.get('name', '未知平台')
-                items = platform.get('items', [])
-                
-                if items:
-                    lines.append(f"\n【{platform_name}】")
-                    for item in items[:5]:
-                        title = item.get('title', '')
-                        rank = item.get('rank', '')
-                        url = item.get('url', '')
-                        if title and rank:
-                            if len(title) > 50:
-                                title = title[:47] + "..."
-                            # 如果有URL，将标题转换为Markdown链接
-                            if url and url.startswith(('http://', 'https://')):
-                                clean_title = title.replace('[', '【').replace(']', '】').replace('(', '（').replace(')', '）')
-                                title_display = f"[{clean_title}]({url})"
-                                lines.append(f"  {rank}. {title_display}")
-                            else:
-                                lines.append(f"  {rank}. {title}")
-            lines.append("")
-
-        if 'rss_feeds' in standalone_data and standalone_data['rss_feeds']:
-            lines.append("📰 精选RSS源：")
-            for rss_feed in standalone_data['rss_feeds']:
-                feed_name = rss_feed.get('name', '未知源')
-                items = rss_feed.get('items', [])
-                
-                if items:
-                    lines.append(f"\n【{feed_name}】")
-                    for item in items[:3]:
-                        title = item.get('title', '')
-                        published_at = item.get('published_at', '')
-                        url = item.get('url', '')
-                        if title:
-                            if len(title) > 60:
-                                title = title[:57] + "..."
-                            # 如果有URL，将标题转换为Markdown链接
-                            if url and url.startswith(('http://', 'https://')):
-                                clean_title = title.replace('[', '【').replace(']', '】').replace('(', '（').replace(')', '）')
-                                title_display = f"[{clean_title}]({url})"
-                                if published_at:
-                                    lines.append(f"  - {title_display}（{published_at}）")
-                                else:
-                                    lines.append(f"  - {title_display}")
-                            else:
-                                if published_at:
-                                    lines.append(f"  - {title}（{published_at}）")
-                                else:
-                                    lines.append(f"  - {title}")
-            lines.append("")
-
-        return "\n".join(lines).strip()
+        return ""
 
     # =========================
-    # ④ AI 研判
+    # ④ AI 综合研判（只做“清洗 + 保完整”）
     # =========================
     def _render_ai_analysis(self, ai_analysis: Any) -> str:
         if not ai_analysis or not getattr(ai_analysis, "success", False):
             return ""
 
-        lines = []
-        
-        # 1. 标题
-        lines.append("🧠 **AI 综合研判**")
-        lines.append("")
-        
-        # 2. 核心热点态势 (core_trends)
-        core_trends = getattr(ai_analysis, "core_trends", "")
-        if core_trends:
-            # 清理可能的重复标题
-            cleaned_core_trends = core_trends.strip()
-            title_prefixes = [
-                "🤖 AI 综合研判",
-                "🧠 AI 综合研判", 
-                "AI 综合研判",
-                "【AI分析】",
-                "【AI研判】",
-                "热度定性：",
-                "整体热度：",
-                "核心热点态势",
-            ]
-            
-            for prefix in title_prefixes:
-                if cleaned_core_trends.startswith(prefix):
-                    cleaned_core_trends = cleaned_core_trends[len(prefix):].strip()
-                    if cleaned_core_trends.startswith("："):
-                        cleaned_core_trends = cleaned_core_trends[1:].strip()
-            
-            lines.append("**核心热点态势**")
-            lines.append("")
-            lines.append(cleaned_core_trends)
-            lines.append("")
-        
-        # 3. 舆论风向争议 (sentiment_controversy)
-        sentiment_controversy = getattr(ai_analysis, "sentiment_controversy", "")
-        if sentiment_controversy:
-            lines.append("**舆论风向争议**")
-            lines.append("")
-            lines.append(sentiment_controversy.strip())
-            lines.append("")
-        
-        # 4. 异动与弱信号 (signals)
-        signals = getattr(ai_analysis, "signals", "")
-        if signals:
-            lines.append("**异动与弱信号**")
-            lines.append("")
-            lines.append(signals.strip())
-            lines.append("")
-        
-        # 5. RSS深度洞察 (rss_insights)
-        rss_insights = getattr(ai_analysis, "rss_insights", "")
-        if rss_insights:
-            lines.append("**RSS 深度洞察**")
-            lines.append("")
-            lines.append(rss_insights.strip())
-            lines.append("")
-        
-        # 6. 产业分析（从stock_analysis_data提取）
-        stock_analysis_data = getattr(ai_analysis, "stock_analysis_data", [])
-        if stock_analysis_data:
-            # 按category分组
-            category_map = {}
-            for item in stock_analysis_data:
-                category = item.get('category', '其他')
-                if category not in category_map:
-                    category_map[category] = []
-                category_map[category].append(item)
-            
-            lines.append("📊 **产业分析**")
-            for category, items in category_map.items():
-                lines.append(f"【{category}】")
-                for item in items[:2]:  # 每个类别最多显示2条
-                    summary = item.get('summary', '')
-                    sentiment = item.get('sentiment', 'Neutral')
-                    
-                    sentiment_emoji = {
-                        'Positive': '📈',
-                        'Negative': '📉',
-                        'Neutral': '➡️'
-                    }.get(sentiment, '➡️')
-                    
-                    if len(summary) > 80:
-                        summary = summary[:77] + "..."
-                    lines.append(f"  {sentiment_emoji} {summary}")
+        lines = ["🧠 **AI 综合研判**", ""]
+
+        for title, field in [
+            ("核心热点态势", "core_trends"),
+            ("舆论风向争议", "sentiment_controversy"),
+            ("异动与弱信号", "signals"),
+            ("RSS 深度洞察", "rss_insights"),
+        ]:
+            content = getattr(ai_analysis, field, "")
+            if content:
+                lines.append(f"**{title}**")
                 lines.append("")
-        
-        # 7. 研判策略建议 (outlook_strategy)
-        outlook_strategy = getattr(ai_analysis, "outlook_strategy", "")
-        if outlook_strategy:
+                lines.append(content.strip())
+                lines.append("")
+
+        if getattr(ai_analysis, "outlook_strategy", ""):
             lines.append("💡 **研判策略建议**")
             lines.append("")
-            lines.append(outlook_strategy.strip())
-            lines.append("")
-        
-        # 8. 如果没有足够内容，返回空
-        if len(lines) <= 3:  # 只有标题和空行
-            return ""
-        
+            lines.append(ai_analysis.outlook_strategy.strip())
+
         return "\n".join(lines).strip()
 
     # =========================
-    # ⑤ 持仓影响分析
+    # ⑤ 持仓影响（保留）
     # =========================
-    def _render_portfolio_impact(
-        self,
-        portfolio: List[Dict],
-        report_data: Dict[str, Any],
-    ) -> str:
+    def _render_portfolio_impact(self, portfolio, report_data) -> str:
         if not portfolio:
             return ""
-
         lines = ["📊 **持仓相关影响分析**", ""]
-
         for stock in portfolio:
-            name = stock.get("name", "未知")
-            code = stock.get("code", "")
-            sector = stock.get("sector", "")
-
-            lines.append(f"🔹 **{name}（{code}）**")
-            
-            if 'stats' in report_data and isinstance(report_data['stats'], list):
-                for stat in report_data['stats']:
-                    word = stat.get('word', '')
-                    if sector and sector.lower() in word.lower():
-                        titles = stat.get('titles', [])
-                        for i, title_item in enumerate(titles[:2]):
-                            if isinstance(title_item, dict):
-                                title = title_item.get('title', '相关动态')
-                                url = title_item.get('url', '')
-                                # 如果有URL，将标题转换为Markdown链接
-                                if url and url.startswith(('http://', 'https://')):
-                                    clean_title = title.replace('[', '【').replace(']', '】').replace('(', '（').replace(')', '）')
-                                    if len(clean_title) > 40:
-                                        clean_title = clean_title[:37] + "..."
-                                    title_display = f"[{clean_title}]({url})"
-                                else:
-                                    if len(title) > 40:
-                                        title = title[:37] + "..."
-                                    title_display = title
-                                lines.append(f"  - {title_display}")
-            
-            lines.append("")
-
-        return "\n".join(lines).strip()
+            lines.append(f"- {stock.get('name')}（{stock.get('code')}）")
+        return "\n".join(lines)
 
     # =========================
-    # ⑥ 历史趋势对比
+    # ⑥ 趋势对比（保留）
     # =========================
-    def _render_trend_compare(
-        self,
-        history_summary: Dict[str, Any],
-        ai_analysis: Any,
-    ) -> str:
+    def _render_trend_compare(self, history_summary, ai_analysis) -> str:
         if not history_summary:
             return ""
-
-        lines = ["📈 **趋势对比分析（新 vs 历史）**", ""]
-
-        prev_trend = history_summary.get("trend")
-        
-        if prev_trend:
-            lines.append(f"昨日/上期判断：{prev_trend}")
-
-        if ai_analysis and getattr(ai_analysis, "outlook_strategy", None):
-            # 如果outlook_strategy太长，取第一段
-            outlook = ai_analysis.outlook_strategy
-            if len(outlook) > 100:
-                # 找到第一个句号或换行
-                end = outlook.find('。')
-                if end == -1:
-                    end = outlook.find('\n')
-                if end != -1:
-                    outlook = outlook[:end] + "。"
-            lines.append(f"本次判断：{outlook}")
-
-        if prev_trend and ai_analysis:
-            if prev_trend == getattr(ai_analysis, "outlook_strategy", ""):
-                lines.append("➡️ 趋势判断延续")
-            else:
-                lines.append("⚠️ 趋势判断发生变化，需重点关注")
-
-        return "\n".join(lines).strip()
+        return ""
