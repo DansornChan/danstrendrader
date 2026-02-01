@@ -45,14 +45,11 @@ class TelegramSender(BaseSender):
                 print(f"[TelegramSender] 跳过空消息: key={msg.get('key')}")
         
         print(f"[TelegramSender] 准备发送 {len(valid_messages)} 条有效消息")
-        for i, msg in enumerate(valid_messages):
-            print(f"[TelegramSender] 消息 {i+1}: key={msg.get('key')}, 长度={len(msg.get('text', ''))}")
         
         for msg in sorted(valid_messages, key=lambda x: x.get("priority", 99)):
             text = self._decorate(msg["key"], msg["text"])
             # 确保文本非空
             if text and text.strip():
-                print(f"[TelegramSender] 发送 {msg['key']}: {text[:80]}...")
                 for chunk in self._safe_split(text):
                     self._post(chunk)
             else:
@@ -96,15 +93,18 @@ class TelegramSender(BaseSender):
     def _decorate(self, key: str, text: str) -> str:
         """
         根据消息类型加标题
-        注意：ai_analysis 的标题设为空，因为 renderer 已经添加了
+        
+        注意：现在renderer已经为每个块添加了标题，所以这里只添加顶层标题
+        只有hot_topics需要顶层标题，其他块直接返回renderer已经添加了标题的文本
         """
         title_map = {
-            "hot_topics": "🔥 **今日热点与主线**",
-            "rss_items": "📰 **RSS 深度新闻**",
-            "standalone_data": "🏆 **独立展示区**",
-            "portfolio_impact": "📊 **持仓相关影响分析**",
-            "ai_analysis": "",  # 空字符串，因为 renderer 已经添加了标题
-            "trend_compare": "📈 **趋势对比与演化**",
+            "hot_topics": "🔥 **今日热点与主线**",  # 只有热点新闻需要顶层标题
+            "rss_items": "",  # 空字符串，因为renderer已经添加了标题
+            "standalone_data": "",  # 空字符串，因为renderer已经添加了标题
+            "portfolio_impact": "",  # 空字符串，因为renderer已经添加了标题
+            "ai_analysis": "",  # 空字符串，因为renderer已经添加了标题
+            "trend_compare": "",  # 空字符串，因为renderer已经添加了标题
+            "full_text": "📊 **完整报告**",  # 完整文本的标题
         }
 
         title = title_map.get(key, "")
@@ -112,10 +112,10 @@ class TelegramSender(BaseSender):
         # 如果文本为空，直接返回空
         if not text or text.strip() == "":
             return ""
-            
-        # 如果标题为空（如 ai_analysis），直接返回文本
+        
+        # 如果标题为空，直接返回文本（renderer已经添加了标题）
         if not title:
             return text
         
-        # 否则添加标题
+        # 否则添加顶层标题（只针对hot_topics）
         return f"{title}\n\n{text}"
