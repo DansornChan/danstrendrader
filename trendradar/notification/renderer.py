@@ -264,7 +264,7 @@ class NotificationRenderer:
         return "\n".join(lines).strip()
 
     # =========================
-    # ④ AI 研判（修复重复标题问题）
+    # ④ AI 研判（修复版，使用新版5核心板块结构）
     # =========================
     def _render_ai_analysis(self, ai_analysis: Any) -> str:
         if not ai_analysis or not getattr(ai_analysis, "success", False):
@@ -272,68 +272,102 @@ class NotificationRenderer:
 
         lines = []
         
-        # 获取 core_trends
+        # 1. 标题
+        lines.append("🧠 **AI 综合研判**")
+        lines.append("")
+        
+        # 2. 核心热点态势 (core_trends)
         core_trends = getattr(ai_analysis, "core_trends", "")
-        if not core_trends:
+        if core_trends:
+            # 清理可能的重复标题
+            cleaned_core_trends = core_trends.strip()
+            title_prefixes = [
+                "🤖 AI 综合研判",
+                "🧠 AI 综合研判", 
+                "AI 综合研判",
+                "【AI分析】",
+                "【AI研判】",
+                "热度定性：",
+                "整体热度：",
+                "核心热点态势",
+            ]
+            
+            for prefix in title_prefixes:
+                if cleaned_core_trends.startswith(prefix):
+                    cleaned_core_trends = cleaned_core_trends[len(prefix):].strip()
+                    if cleaned_core_trends.startswith("："):
+                        cleaned_core_trends = cleaned_core_trends[1:].strip()
+            
+            lines.append("**核心热点态势**")
+            lines.append("")
+            lines.append(cleaned_core_trends)
+            lines.append("")
+        
+        # 3. 舆论风向争议 (sentiment_controversy)
+        sentiment_controversy = getattr(ai_analysis, "sentiment_controversy", "")
+        if sentiment_controversy:
+            lines.append("**舆论风向争议**")
+            lines.append("")
+            lines.append(sentiment_controversy.strip())
+            lines.append("")
+        
+        # 4. 异动与弱信号 (signals)
+        signals = getattr(ai_analysis, "signals", "")
+        if signals:
+            lines.append("**异动与弱信号**")
+            lines.append("")
+            lines.append(signals.strip())
+            lines.append("")
+        
+        # 5. RSS深度洞察 (rss_insights)
+        rss_insights = getattr(ai_analysis, "rss_insights", "")
+        if rss_insights:
+            lines.append("**RSS 深度洞察**")
+            lines.append("")
+            lines.append(rss_insights.strip())
+            lines.append("")
+        
+        # 6. 产业分析（从stock_analysis_data提取）
+        stock_analysis_data = getattr(ai_analysis, "stock_analysis_data", [])
+        if stock_analysis_data:
+            # 按category分组
+            category_map = {}
+            for item in stock_analysis_data:
+                category = item.get('category', '其他')
+                if category not in category_map:
+                    category_map[category] = []
+                category_map[category].append(item)
+            
+            lines.append("📊 **产业分析**")
+            for category, items in category_map.items():
+                lines.append(f"【{category}】")
+                for item in items[:2]:  # 每个类别最多显示2条
+                    summary = item.get('summary', '')
+                    sentiment = item.get('sentiment', 'Neutral')
+                    
+                    sentiment_emoji = {
+                        'Positive': '📈',
+                        'Negative': '📉',
+                        'Neutral': '➡️'
+                    }.get(sentiment, '➡️')
+                    
+                    if len(summary) > 80:
+                        summary = summary[:77] + "..."
+                    lines.append(f"  {sentiment_emoji} {summary}")
+                lines.append("")
+        
+        # 7. 研判策略建议 (outlook_strategy)
+        outlook_strategy = getattr(ai_analysis, "outlook_strategy", "")
+        if outlook_strategy:
+            lines.append("💡 **研判策略建议**")
+            lines.append("")
+            lines.append(outlook_strategy.strip())
+            lines.append("")
+        
+        # 8. 如果没有足够内容，返回空
+        if len(lines) <= 3:  # 只有标题和空行
             return ""
         
-        # 清理core_trends中可能已有的标题
-        cleaned_core_trends = core_trends.strip()
-        
-        # 移除常见的AI标题前缀
-        title_prefixes = [
-            "🤖 AI 综合研判",
-            "🧠 AI 综合研判", 
-            "AI 综合研判",
-            "【AI分析】",
-            "【AI研判】",
-            "热度定性：",
-            "整体热度："
-        ]
-        
-        for prefix in title_prefixes:
-            if cleaned_core_trends.startswith(prefix):
-                cleaned_core_trends = cleaned_core_trends[len(prefix):].strip()
-                if cleaned_core_trends.startswith("："):
-                    cleaned_core_trends = cleaned_core_trends[1:].strip()
-        
-        # 添加AI标题（只在renderer中添加一次）
-        lines.extend([
-            "🧠 **AI 综合研判**",
-            "",
-            cleaned_core_trends,
-            ""
-        ])
-
-        # 产业分析
-        if getattr(ai_analysis, "industry_analysis", None):
-            lines.append("📊 **产业分析**")
-            for industry in ai_analysis.industry_analysis:
-                category = industry.get('category', '未分类')
-                summary = industry.get('summary', '')
-                sentiment = industry.get('sentiment', 'Neutral')
-                
-                sentiment_emoji = {
-                    'Positive': '📈',
-                    'Negative': '📉',
-                    'Neutral': '➡️'
-                }.get(sentiment, '➡️')
-                
-                if len(summary) > 100:
-                    summary = summary[:97] + "..."
-                    
-                lines.append(f"{sentiment_emoji}【{category}】{summary}")
-            lines.append("")
-
-        # 结论判断
-        conclusion = getattr(ai_analysis, "conclusion", "")
-        if conclusion:
-            lines.extend([
-                "📌 **结论判断**",
-                conclusion.strip(),
-                ""
-            ])
-
         return "\n".join(lines).strip()
 
     # =========================
@@ -390,11 +424,20 @@ class NotificationRenderer:
         if prev_trend:
             lines.append(f"昨日/上期判断：{prev_trend}")
 
-        if ai_analysis and getattr(ai_analysis, "conclusion", None):
-            lines.append(f"本次判断：{ai_analysis.conclusion}")
+        if ai_analysis and getattr(ai_analysis, "outlook_strategy", None):
+            # 如果outlook_strategy太长，取第一段
+            outlook = ai_analysis.outlook_strategy
+            if len(outlook) > 100:
+                # 找到第一个句号或换行
+                end = outlook.find('。')
+                if end == -1:
+                    end = outlook.find('\n')
+                if end != -1:
+                    outlook = outlook[:end] + "。"
+            lines.append(f"本次判断：{outlook}")
 
         if prev_trend and ai_analysis:
-            if prev_trend == getattr(ai_analysis, "conclusion", ""):
+            if prev_trend == getattr(ai_analysis, "outlook_strategy", ""):
                 lines.append("➡️ 趋势判断延续")
             else:
                 lines.append("⚠️ 趋势判断发生变化，需重点关注")
