@@ -1,72 +1,68 @@
 # coding=utf-8
-from datetime import datetime
+"""
+信号 / 大宗商品 Telegram 消息格式化器
+用于非 AI 报告类的即时通知（强 / 中 / 弱 信号）
+"""
 
-STRONG_KEYWORDS = [
-    "突破", "减产", "制裁", "ETF", "资金流入",
-    "爆仓", "加息", "降息", "禁令"
-]
-
-STRONG_CATEGORIES = [
-    "原油", "能源", "比特币", "加密货币",
-    "铜", "航运", "美联储", "地缘"
-]
+from typing import List, Dict
 
 
-def classify_signal(title: str, category: str, weight: int) -> str:
-    score = 0
-
-    if weight >= 5:
-        score += 1
-
-    if any(k in title for k in STRONG_KEYWORDS):
-        score += 1
-
-    if any(c in category for c in STRONG_CATEGORIES):
-        score += 1
-
-    if score >= 2:
-        return "STRONG"
-    elif weight >= 3:
-        return "MID"
-    else:
-        return "WEAK"
-
-
-def format_signal_for_telegram(signal: dict) -> str:
+def format_signal_for_telegram(signals: List[Dict]) -> List[str]:
     """
-    signal = {
-        "title": str,
-        "summary": str,
-        "category": str,
-        "weight": int,
-        "source": str,
-        "url": str
-    }
+    将信号列表格式化为 Telegram 消息列表
+
+    signals 示例：
+    [
+        {
+            "category": "stock" | "commodity",
+            "symbol": "黄金 / 原油 / 600519",
+            "level": "强" | "中" | "弱",
+            "direction": "看多" | "看空" | "震荡",
+            "reason": "美元指数回落，避险需求上升",
+            "time": "2026-02-01"
+        }
+    ]
     """
+    messages = []
 
-    level = classify_signal(
-        signal.get("title", ""),
-        signal.get("category", ""),
-        signal.get("weight", 0)
-    )
+    if not signals:
+        return messages
 
-    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    for sig in signals:
+        category = sig.get("category", "signal")
+        symbol = sig.get("symbol", "未知标的")
+        level = sig.get("level", "中")
+        direction = sig.get("direction", "中性")
+        reason = sig.get("reason", "")
+        time = sig.get("time", "")
 
-    header = {
-        "STRONG": "🚨【强信号】",
-        "MID": "⚠️【中信号】",
-        "WEAK": "ℹ️【快讯】"
-    }[level]
+        # 不同强度使用不同 emoji
+        level_emoji = {
+            "强": "🚨",
+            "中": "⚠️",
+            "弱": "ℹ️"
+        }.get(level, "📌")
 
-    return f"""
-{header}
-━━━━━━━━━━━━━━
-📌 标题：{signal.get('title', '')}
-🏷 分类：{signal.get('category', '')}
-⭐ 权重：{signal.get('weight', 0)}
-🕒 时间：{now}
+        # 分类标题
+        if category == "commodity":
+            title = "大宗商品信号"
+        elif category == "stock":
+            title = "个股信号"
+        else:
+            title = "市场信号"
 
-{signal.get('summary', '')}
+        message = (
+            f"{level_emoji}【{title}｜{level}】\n"
+            f"标的：{symbol}\n"
+            f"方向：{direction}\n"
+        )
 
-🔗 {signal.get('url', '')}
-""".strip()
+        if reason:
+            message += f"原因：{reason}\n"
+
+        if time:
+            message += f"时间：{time}"
+
+        messages.append(message.strip())
+
+    return messages
