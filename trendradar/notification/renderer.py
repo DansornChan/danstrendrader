@@ -74,7 +74,7 @@ class NotificationRenderer:
         }
 
     # =========================
-    # ① 分领域重点新闻
+    # ① 分领域重点新闻（标题可点击）
     # =========================
     def _render_hot_topics(self, report_data: Dict[str, Any]) -> str:
         if not report_data:
@@ -118,25 +118,41 @@ class NotificationRenderer:
                     time_display = title_item.get('time_display', '')
                     ranks = title_item.get('ranks', [])
                     is_new = title_item.get('is_new', False)
+                    url = title_item.get('url') or title_item.get('mobile_url') or ''
                     
-                    if len(title) > 60:
-                        title_display = title[:57] + "..."
-                    else:
-                        title_display = title
-                    
+                    # 构建显示文本
                     display_parts = []
+                    
+                    # 如果有URL，将标题转换为Markdown链接
+                    if url and url.startswith(('http://', 'https://')):
+                        # 清理标题中的Markdown特殊字符
+                        clean_title = title.replace('[', '【').replace(']', '】').replace('(', '（').replace(')', '）')
+                        if len(clean_title) > 50:
+                            clean_title = clean_title[:47] + "..."
+                        title_display = f"[{clean_title}]({url})"
+                    else:
+                        # 没有URL，只显示标题
+                        if len(title) > 50:
+                            title_display = title[:47] + "..."
+                        else:
+                            title_display = title
+                    
+                    # 来源和时间
                     if source:
                         display_parts.append(f"{source}")
                     if time_display:
                         display_parts.append(f"{time_display}")
                     
+                    # 排名
                     if ranks:
                         last_rank = ranks[-1] if isinstance(ranks, list) and ranks else ranks
                         display_parts.append(f"第{last_rank}位")
                     
+                    # 是否为新标题
                     if is_new:
                         display_parts.append("🆕")
                     
+                    # 组装
                     if display_parts:
                         info_str = "（" + " | ".join(display_parts) + "）"
                     else:
@@ -144,6 +160,7 @@ class NotificationRenderer:
                     
                     lines.append(f"  - {title_display}{info_str}")
                 else:
+                    # 如果标题项不是字典，直接显示
                     title_str = str(title_item)
                     if len(title_str) > 60:
                         title_str = title_str[:57] + "..."
@@ -159,7 +176,7 @@ class NotificationRenderer:
         return "\n".join(lines).strip()
 
     # =========================
-    # ② RSS 项目渲染
+    # ② RSS 项目渲染（标题可点击）
     # =========================
     def _render_rss_items(self, rss_items: List[Dict]) -> str:
         if not rss_items:
@@ -187,10 +204,22 @@ class NotificationRenderer:
                     title = title_item.get('title', '无标题')
                     feed_name = title_item.get('feed_name', '')
                     published_at = title_item.get('published_at', '')
+                    url = title_item.get('url', '')
                     
-                    if len(title) > 60:
-                        title = title[:57] + "..."
+                    # 如果有URL，将标题转换为Markdown链接
+                    if url and url.startswith(('http://', 'https://')):
+                        # 清理标题中的Markdown特殊字符
+                        clean_title = title.replace('[', '【').replace(']', '】').replace('(', '（').replace(')', '）')
+                        if len(clean_title) > 60:
+                            clean_title = clean_title[:57] + "..."
+                        title_display = f"[{clean_title}]({url})"
+                    else:
+                        # 没有URL，只显示标题
+                        if len(title) > 60:
+                            title = title[:57] + "..."
+                        title_display = title
                     
+                    # 组装信息
                     info_parts = []
                     if feed_name:
                         info_parts.append(feed_name)
@@ -202,7 +231,7 @@ class NotificationRenderer:
                     else:
                         info_str = ""
                     
-                    lines.append(f"  - {title}{info_str}")
+                    lines.append(f"  - {title_display}{info_str}")
                 else:
                     lines.append(f"  - {str(title_item)}")
             
@@ -235,10 +264,17 @@ class NotificationRenderer:
                     for item in items[:5]:
                         title = item.get('title', '')
                         rank = item.get('rank', '')
+                        url = item.get('url', '')
                         if title and rank:
                             if len(title) > 50:
                                 title = title[:47] + "..."
-                            lines.append(f"  {rank}. {title}")
+                            # 如果有URL，将标题转换为Markdown链接
+                            if url and url.startswith(('http://', 'https://')):
+                                clean_title = title.replace('[', '【').replace(']', '】').replace('(', '（').replace(')', '）')
+                                title_display = f"[{clean_title}]({url})"
+                                lines.append(f"  {rank}. {title_display}")
+                            else:
+                                lines.append(f"  {rank}. {title}")
             lines.append("")
 
         if 'rss_feeds' in standalone_data and standalone_data['rss_feeds']:
@@ -252,19 +288,29 @@ class NotificationRenderer:
                     for item in items[:3]:
                         title = item.get('title', '')
                         published_at = item.get('published_at', '')
+                        url = item.get('url', '')
                         if title:
                             if len(title) > 60:
                                 title = title[:57] + "..."
-                            if published_at:
-                                lines.append(f"  - {title}（{published_at}）")
+                            # 如果有URL，将标题转换为Markdown链接
+                            if url and url.startswith(('http://', 'https://')):
+                                clean_title = title.replace('[', '【').replace(']', '】').replace('(', '（').replace(')', '）')
+                                title_display = f"[{clean_title}]({url})"
+                                if published_at:
+                                    lines.append(f"  - {title_display}（{published_at}）")
+                                else:
+                                    lines.append(f"  - {title_display}")
                             else:
-                                lines.append(f"  - {title}")
+                                if published_at:
+                                    lines.append(f"  - {title}（{published_at}）")
+                                else:
+                                    lines.append(f"  - {title}")
             lines.append("")
 
         return "\n".join(lines).strip()
 
     # =========================
-    # ④ AI 研判（修复版，使用新版5核心板块结构）
+    # ④ AI 研判
     # =========================
     def _render_ai_analysis(self, ai_analysis: Any) -> str:
         if not ai_analysis or not getattr(ai_analysis, "success", False):
@@ -398,9 +444,18 @@ class NotificationRenderer:
                         for i, title_item in enumerate(titles[:2]):
                             if isinstance(title_item, dict):
                                 title = title_item.get('title', '相关动态')
-                                if len(title) > 40:
-                                    title = title[:37] + "..."
-                                lines.append(f"  - {title}")
+                                url = title_item.get('url', '')
+                                # 如果有URL，将标题转换为Markdown链接
+                                if url and url.startswith(('http://', 'https://')):
+                                    clean_title = title.replace('[', '【').replace(']', '】').replace('(', '（').replace(')', '）')
+                                    if len(clean_title) > 40:
+                                        clean_title = clean_title[:37] + "..."
+                                    title_display = f"[{clean_title}]({url})"
+                                else:
+                                    if len(title) > 40:
+                                        title = title[:37] + "..."
+                                    title_display = title
+                                lines.append(f"  - {title_display}")
             
             lines.append("")
 
