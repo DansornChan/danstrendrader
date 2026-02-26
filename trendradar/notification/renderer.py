@@ -208,6 +208,12 @@ class NotificationRenderer:
             lines.append("💡 **研判策略建议**")
             lines.append("")
             lines.append(ai_analysis.outlook_strategy.strip())
+            lines.append("")
+
+        if getattr(ai_analysis, "policy_deep_dive", ""):
+            lines.append("🏛️ **重大政策全文解读**")
+            lines.append("")
+            lines.append(ai_analysis.policy_deep_dive.strip())
 
         return "\n".join(lines).strip()
 
