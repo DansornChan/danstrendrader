@@ -75,7 +75,10 @@ def render_ai_analysis_markdown(result: AIAnalysisResult) -> str:
         lines.extend(["**RSS 深度洞察**", _format_list_content(result.rss_insights), ""])
 
     if result.outlook_strategy:
-        lines.extend(["**研判策略建议**", _format_list_content(result.outlook_strategy)])
+        lines.extend(["**研判策略建议**", _format_list_content(result.outlook_strategy), ""])
+
+    if getattr(result, "policy_deep_dive", ""):
+        lines.extend(["**重大政策全文解读**", _format_list_content(result.policy_deep_dive)])
 
     return "\n".join(lines)
 
@@ -100,7 +103,10 @@ def render_ai_analysis_feishu(result: AIAnalysisResult) -> str:
         lines.extend(["**RSS 深度洞察**", _format_list_content(result.rss_insights), ""])
 
     if result.outlook_strategy:
-        lines.extend(["**研判策略建议**", _format_list_content(result.outlook_strategy)])
+        lines.extend(["**研判策略建议**", _format_list_content(result.outlook_strategy), ""])
+
+    if getattr(result, "policy_deep_dive", ""):
+        lines.extend(["**重大政策全文解读**", _format_list_content(result.policy_deep_dive)])
 
     return "\n".join(lines)
 
@@ -125,7 +131,10 @@ def render_ai_analysis_dingtalk(result: AIAnalysisResult) -> str:
         lines.extend(["#### RSS 深度洞察", _format_list_content(result.rss_insights), ""])
 
     if result.outlook_strategy:
-        lines.extend(["#### 研判策略建议", _format_list_content(result.outlook_strategy)])
+        lines.extend(["#### 研判策略建议", _format_list_content(result.outlook_strategy), ""])
+
+    if getattr(result, "policy_deep_dive", ""):
+        lines.extend(["#### 重大政策全文解读", _format_list_content(result.policy_deep_dive)])
 
     return "\n".join(lines)
 
@@ -187,6 +196,16 @@ def render_ai_analysis_html(result: AIAnalysisResult) -> str:
             '</div>'
         ])
 
+    if getattr(result, "policy_deep_dive", ""):
+        content = _format_list_content(result.policy_deep_dive)
+        content_html = _escape_html(content).replace("\n", "<br>")
+        html_parts.extend([
+            '<div class="ai-section">',
+            '<h4>重大政策全文解读</h4>',
+            f'<div class="ai-content">{content_html}</div>',
+            '</div>'
+        ])
+
     html_parts.append('</div>')
     return "\n".join(html_parts)
 
@@ -211,7 +230,10 @@ def render_ai_analysis_plain(result: AIAnalysisResult) -> str:
         lines.extend(["[RSS 深度洞察]", _format_list_content(result.rss_insights), ""])
 
     if result.outlook_strategy:
-        lines.extend(["[研判策略建议]", _format_list_content(result.outlook_strategy)])
+        lines.extend(["[研判策略建议]", _format_list_content(result.outlook_strategy), ""])
+
+    if getattr(result, "policy_deep_dive", ""):
+        lines.extend(["[重大政策全文解读]", _format_list_content(result.policy_deep_dive)])
 
     return "\n".join(lines)
 
@@ -293,6 +315,15 @@ def render_ai_analysis_html_rich(result: AIAnalysisResult) -> str:
         ai_html += f'''
                     <div class="ai-block">
                         <div class="ai-block-title">研判策略建议</div>
+                        <div class="ai-block-content">{content_html}</div>
+                    </div>'''
+
+    if getattr(result, "policy_deep_dive", ""):
+        content = _format_list_content(result.policy_deep_dive)
+        content_html = _escape_html(content).replace("\n", "<br>")
+        ai_html += f'''
+                    <div class="ai-block">
+                        <div class="ai-block-title">重大政策全文解读</div>
                         <div class="ai-block-content">{content_html}</div>
                     </div>'''
 
