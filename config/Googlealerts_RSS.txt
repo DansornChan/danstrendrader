@@ -1,0 +1,6 @@
+# Google Alerts RSS 清单
+# 每行格式：关键词|RSS_URL
+# 示例：
+# NVIDIA|https://www.google.com/alerts/feeds/xxxxxxxxxxxxxxxx/xxxxxxxxxxxxxxxx
+# 半导体设备|https://www.google.com/alerts/feeds/xxxxxxxxxxxxxxxx/xxxxxxxxxxxxxxxx
+

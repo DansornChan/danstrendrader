@@ -23,6 +23,7 @@ class AIAnalysisResult:
     signals: str = ""                    # 异动与弱信号
     rss_insights: str = ""               # RSS 深度洞察
     outlook_strategy: str = ""           # 研判与策略建议
+    policy_deep_dive: str = ""           # 重大政策全文解读与关联企业
     
     # === 【新增】股票分析专用数据 ===
     stock_analysis_data: List[Dict] = field(default_factory=list)
@@ -201,13 +202,23 @@ class AIAnalyzer:
 请务必返回标准的 JSON 格式，除了常规分析字段外，必须包含 "stock_analysis_data" 字段。
 该字段用于量化分析，格式列表如下：
 [
-  {
+ {
     "title": "新闻标题",
-    "summary": "简短摘要(包含了对持仓影响的分析)",
+    "summary": "简短摘要(包含对持仓/关注标的影响的分析)",
     "category": "从列表选择: [Macro, Tech, Energy, Consumer, Finance, Healthcare, Auto, Other]",
-    "sentiment": "Positive 或 Negative 或 Neutral"
+    "related_assets": ["相关股票/ETF/板块基金代码或名称"],
+    "tags": ["财报", "政策", "供应链", "估值", "资金面", "新技术", "新专利", "投资并购"],
+    "sentiment": "Positive 或 Negative 或 Neutral",
+    "impact_direction": "正向 或 负向 或 中性",
+    "impact_score": "1-10 的整数，10代表影响最强",
+    "relevance_score": "1-10 的整数，10代表与持仓强相关",
+    "innovation_investment_score": "1-10 的整数，衡量新技术/专利/投融资事件对相关标的的影响强度"
   }
 ]
+若出现重大政策新闻，请在 JSON 顶层补充 "policy_deep_dive" 字段，
+对政策进行全文级别总结，并在结尾追加“强关联企业：A、B、C”。
+若新闻涉及持仓/关注板块基金对应企业的【新技术、新专利、新投资或被投资】，
+请在 tags 中必须包含对应标签，并给出 innovation_investment_score（10分制）。
 =============================================================
 """
         user_prompt += stock_instruction
@@ -263,12 +274,18 @@ class AIAnalyzer:
                 titles = stat.get("titles", [])
                 if word and titles:
                     news_lines.append(f"\n**{word}** ({len(titles)}条)")
-                    for t in titles[:3]: 
+                    for t in titles[:3]:
                         if not isinstance(t, dict): continue
                         title = t.get("title", "")
                         source = t.get("source_name", t.get("source", ""))
                         line = f"- [{source}] {title}"
                         news_lines.append(line)
+                        detail = t.get("summary") or t.get("content") or t.get("description")
+                        if detail:
+                            detail = str(detail).replace("\n", " ").strip()
+                            if len(detail) > 240:
+                                detail = detail[:240] + "..."
+                            news_lines.append(f"  摘要: {detail}")
                         news_count += 1
                 if news_count >= self.max_news:
                     break
@@ -289,6 +306,12 @@ class AIAnalyzer:
                             source = t.get("source_name", t.get("feed_name", ""))
                             line = f"- [{source}] {title}"
                             rss_lines.append(line)
+                            detail = t.get("summary") or t.get("content") or t.get("description")
+                            if detail:
+                                detail = str(detail).replace("\n", " ").strip()
+                                if len(detail) > 240:
+                                    detail = detail[:240] + "..."
+                                rss_lines.append(f"  摘要: {detail}")
                             rss_count += 1
                             if rss_count >= remaining: break
 
@@ -361,6 +384,7 @@ class AIAnalyzer:
             result.signals = data.get("signals", "")
             result.rss_insights = data.get("rss_insights", "")
             result.outlook_strategy = data.get("outlook_strategy", "")
+            result.policy_deep_dive = data.get("policy_deep_dive", "")
             result.stock_analysis_data = data.get("stock_analysis_data", [])
             
             # 打印每个字段的长度
@@ -370,6 +394,7 @@ class AIAnalyzer:
                 print(f"[AI解析] signals 长度: {len(result.signals)}")
                 print(f"[AI解析] rss_insights 长度: {len(result.rss_insights)}")
                 print(f"[AI解析] outlook_strategy 长度: {len(result.outlook_strategy)}")
+                print(f"[AI解析] policy_deep_dive 长度: {len(result.policy_deep_dive)}")
                 print(f"[AI解析] stock_analysis_data 数量: {len(result.stock_analysis_data)}")
             
             result.success = True
@@ -386,6 +411,7 @@ class AIAnalyzer:
             result.signals = self._extract_section(response, "异动与弱信号", "专业场深度洞察")
             result.rss_insights = self._extract_section(response, "专业场深度洞察", "投研策略建议")
             result.outlook_strategy = self._extract_section(response, "投研策略建议", None)
+            result.policy_deep_dive = self._extract_section(response, "重大政策全文解读", None)
             
             # 如果core_trends为空，使用原始响应
             if not result.core_trends:
