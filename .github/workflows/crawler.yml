@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   actions: write
 
 jobs:
@@ -70,3 +70,11 @@ jobs:
           name: news-summary-json
           path: output/news_summary.json
           retention-days: 1
+
+      - name: Commit sector history
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add data/sector_history.json
+          git diff --cached --quiet || git commit -m "update sector history"
+          git push

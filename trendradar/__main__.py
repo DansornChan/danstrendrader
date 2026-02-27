@@ -12,6 +12,7 @@ import json
 import requests
 import logging
 from pathlib import Path
+from datetime import timedelta
 from typing import Dict, List, Tuple, Optional
 from difflib import SequenceMatcher
 
@@ -27,6 +28,13 @@ from trendradar.ai import AIAnalyzer, AIAnalysisResult
 # 初始化日志记录器
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+
+def calculate_momentum(today_strength, yesterday_strength):
+    """计算趋势动量（今日强度 - 昨日强度）。"""
+    if yesterday_strength is None:
+        return "N/A"
+    return round(float(today_strength) - float(yesterday_strength), 2)
 
 
 def check_version_update(
@@ -117,6 +125,7 @@ class NewsAnalyzer:
         self.is_docker_container = self._detect_docker_environment()
         self.update_info = None
         self.proxy_url = None
+        self.portfolio_watchlist: List[str] = []
         self._setup_proxy()
         self.data_fetcher = DataFetcher(self.proxy_url)
 
@@ -163,46 +172,164 @@ class NewsAnalyzer:
         """
         从 GitHub 获取用户持仓配置，并生成 A 股代码识别上下文
         """
-        # 这里硬编码你的仓库地址，或者你可以把它放到 config.yaml 里读取
         url = "https://raw.githubusercontent.com/DansornChan/daily_stock_analysis/main/portfolio.json"
-        
+
         print("[Context] 正在同步持仓数据...")
+        self.portfolio_watchlist = []
         try:
-            # 如果是私有库，可以在 headers 中加入 Authorization
             response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                
-                # 兼容处理：如果是 list 直接用，如果是 dict 取 keys
-                if isinstance(data, dict):
-                    codes = list(data.keys())
-                elif isinstance(data, list):
-                    codes = data
-                else:
-                    codes = []
-                
-                # 过滤出 6 位数字代码 (A股特征)
-                a_share_codes = [str(c) for c in codes if str(c).isdigit() and len(str(c)) == 6]
-                
-                if not a_share_codes:
-                    return ""
-                
-                # 生成给 AI 的 Prompt 片段
-                context = (
-                    f"【用户核心持仓（中国A股）】代码列表: {', '.join(a_share_codes)}。\n"
-                    f"指令：请务必根据代码（如 600406 -> 国电南瑞）识别对应的公司实体及所属行业产业链，"
-                    f"若新闻涉及这些公司或其上下游，请标记为【🔴 持仓关联】。"
-                )
-                print(f"[Context] 成功加载 {len(a_share_codes)} 只持仓股票上下文")
-                return context
-            else:
+            if response.status_code != 200:
                 print(f"[Context] 获取持仓失败: HTTP {response.status_code}")
                 return ""
+
+            data = response.json()
+            raw_assets = []
+            if isinstance(data, dict):
+                raw_assets.extend(data.keys())
+                for value in data.values():
+                    if isinstance(value, str):
+                        raw_assets.append(value)
+                    elif isinstance(value, dict):
+                        for field in ("code", "symbol", "name", "ticker"):
+                            field_value = value.get(field)
+                            if field_value:
+                                raw_assets.append(field_value)
+                    elif isinstance(value, list):
+                        raw_assets.extend(value)
+            elif isinstance(data, list):
+                raw_assets.extend(data)
+
+            normalized_assets = []
+            for item in raw_assets:
+                if isinstance(item, dict):
+                    for field in ("code", "symbol", "name", "ticker"):
+                        field_value = item.get(field)
+                        if field_value:
+                            normalized_assets.append(str(field_value).strip())
+                else:
+                    text = str(item).strip()
+                    if text:
+                        normalized_assets.append(text)
+
+            seen = set()
+            for asset in normalized_assets:
+                if asset not in seen:
+                    seen.add(asset)
+                    self.portfolio_watchlist.append(asset)
+
+            a_share_codes = [x for x in self.portfolio_watchlist if x.isdigit() and len(x) == 6]
+            if not a_share_codes:
+                return ""
+
+            context = (
+                f"【用户核心持仓（中国A股）】代码列表: {', '.join(a_share_codes)}。\n"
+                f"指令：请务必根据代码（如 600406 -> 国电南瑞）识别对应的公司实体及所属行业产业链，"
+                f"若新闻涉及这些公司或其上下游，请标记为【🔴 持仓关联】。"
+            )
+            print(f"[Context] 成功加载 {len(a_share_codes)} 只持仓股票上下文")
+            return context
         except Exception as e:
             print(f"[Context] 同步持仓出错: {e}")
             return ""
 
-    def _export_json_for_stock_analysis(self, ai_result: AIAnalysisResult) -> None:
+
+    def _build_portfolio_news_summary(self, ai_result: AIAnalysisResult) -> Dict:
+        """构建持仓/关注标的咨询总结，反送给 daily_stock_analysis 使用"""
+        items = ai_result.stock_analysis_data or []
+        if not items:
+            return {
+                "watchlist": self.portfolio_watchlist,
+                "summary": "无可用持仓关联分析",
+                "strong_related_news": [],
+                "positive_count": 0,
+                "negative_count": 0,
+            }
+
+        watch_tokens = [str(x).strip() for x in self.portfolio_watchlist if str(x).strip()]
+        strong_related = []
+        positive_count = 0
+        negative_count = 0
+        innovation_focus_news = []
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            related_assets = item.get("related_assets", [])
+            if isinstance(related_assets, str):
+                related_assets = [related_assets]
+            related_assets = [str(x).strip() for x in related_assets if str(x).strip()]
+
+            try:
+                relevance_score = int(item.get("relevance_score", 0))
+            except Exception:
+                relevance_score = 0
+
+            related_text = " ".join(related_assets + [str(item.get("title", ""))])
+            token_hit = any(token in related_text for token in watch_tokens) if watch_tokens else bool(related_assets)
+            if not (token_hit or relevance_score >= 7):
+                continue
+
+            impact_direction = str(item.get("impact_direction", item.get("sentiment", "Neutral")))
+            if impact_direction in ["Positive", "正向"]:
+                positive_count += 1
+            if impact_direction in ["Negative", "负向"]:
+                negative_count += 1
+
+            tags = item.get("tags", [])
+            if isinstance(tags, str):
+                tags = [tags]
+
+            innovation_score = item.get("innovation_investment_score", 0)
+            try:
+                innovation_score = int(innovation_score)
+            except Exception:
+                innovation_score = 0
+
+            innovation_keywords = ["新技术", "新专利", "投资并购", "投资", "被投资", "融资"]
+            has_innovation_signal = any(k in str(t) for t in tags for k in innovation_keywords)
+
+            record = {
+                "title": item.get("title", ""),
+                "related_assets": related_assets,
+                "tags": tags,
+                "impact_direction": impact_direction,
+                "impact_score": item.get("impact_score", 0),
+                "relevance_score": relevance_score,
+                "innovation_investment_score": innovation_score,
+                "summary": item.get("summary", ""),
+            }
+            strong_related.append(record)
+
+            if has_innovation_signal or innovation_score >= 7:
+                innovation_focus_news.append(record)
+
+        if not strong_related:
+            summary_text = "今日未识别到与持仓/关注标的强关联的新闻。"
+        else:
+            summary_text = (
+                f"今日共识别 {len(strong_related)} 条强关联新闻，"
+                f"正向 {positive_count} 条，负向 {negative_count} 条。"
+            )
+
+        innovation_summary = (
+            f"识别到 {len(innovation_focus_news)} 条与新技术/新专利/投融资相关的强关联新闻。"
+            if innovation_focus_news else
+            "未识别到与新技术/新专利/投融资显著相关的强关联新闻。"
+        )
+
+        return {
+            "watchlist": self.portfolio_watchlist,
+            "summary": summary_text,
+            "innovation_summary": innovation_summary,
+            "strong_related_news": strong_related,
+            "innovation_focus_news": innovation_focus_news,
+            "positive_count": positive_count,
+            "negative_count": negative_count,
+        }
+
+
+    def _export_json_for_stock_analysis(self, ai_result: AIAnalysisResult) -> Dict:
         """将 AI 分析结果保存为 JSON 文件"""
         try:
             output_dir = Path("output")
@@ -223,12 +350,22 @@ class NewsAnalyzer:
                     "sentiment": "Neutral"
                 }]
 
+            export_payload = {
+                "generated_at": self.ctx.format_time(),
+                "core_trends": ai_result.core_trends,
+                "policy_deep_dive": getattr(ai_result, "policy_deep_dive", ""),
+                "stock_analysis_data": data,
+                "portfolio_consultation_summary": self._build_portfolio_news_summary(ai_result),
+            }
+
             with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            
+                json.dump(export_payload, f, ensure_ascii=False, indent=2)
+
             print(f"[导出] Stock Analysis 专用数据已保存: {file_path}")
+            return export_payload
         except Exception as e:
             print(f"[导出] 保存 JSON 失败: {e}")
+            return {}
 
     def _setup_proxy(self) -> None:
         """设置代理配置"""
@@ -683,6 +820,8 @@ class NewsAnalyzer:
         has_notification = self._has_notification_configured()
         cfg = self.ctx.config
 
+        history_summary = self._build_and_persist_sector_history(stats)
+
         # 1. AI 分析：必须使用【完整数据】(包含弱信号)
         if ai_result is None:
             ai_config = cfg.get("AI_ANALYSIS", {})
@@ -755,7 +894,7 @@ class NewsAnalyzer:
                 "report_data": report_data,
                 "ai_analysis": ai_result,
                 "portfolio": [],  # 暂时留空，避免因缺少列表结构而报错
-                "history_summary": {},
+                "history_summary": history_summary,
                 "rss_items": rss_items,
                 "mode": mode,
                 "update_info": update_info_to_send
@@ -773,6 +912,86 @@ class NewsAnalyzer:
              print(f"跳过{report_type}通知：经筛选后未检测到匹配的强信号新闻")
 
         return False
+
+    def _get_sector_history_file(self) -> Path:
+        data_dir = Path("data")
+        data_dir.mkdir(parents=True, exist_ok=True)
+        history_file = data_dir / "sector_history.json"
+        if not history_file.exists():
+            history_file.write_text("{}", encoding="utf-8")
+        return history_file
+
+    def _load_sector_history(self) -> Dict[str, Dict[str, float]]:
+        history_file = self._get_sector_history_file()
+        try:
+            content = history_file.read_text(encoding="utf-8").strip()
+            data = json.loads(content) if content else {}
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def _save_sector_history(self, history: Dict[str, Dict[str, float]]) -> None:
+        history_file = self._get_sector_history_file()
+        sorted_dates = sorted(history.keys())[-7:]
+        trimmed = {d: history[d] for d in sorted_dates}
+        history_file.write_text(json.dumps(trimmed, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _calculate_sector_strength(self, stats: List[Dict]) -> Dict[str, float]:
+        strengths: Dict[str, float] = {}
+        for group in stats or []:
+            sector = group.get("word", "")
+            titles = group.get("titles", [])
+            if not sector or not titles:
+                continue
+
+            score = 0.0
+            for item in titles:
+                if not isinstance(item, dict):
+                    continue
+                ranks = item.get("ranks", [])
+                rank = ranks[0] if ranks else 99
+                score += max(0.0, 2.0 - (min(rank, 100) / 50.0))
+
+            strengths[sector] = round(score, 2)
+        return strengths
+
+    def _build_and_persist_sector_history(self, stats: List[Dict]) -> Dict[str, Dict]:
+        today_date = self.ctx.format_date()
+        today_strengths = self._calculate_sector_strength(stats)
+        history = self._load_sector_history()
+
+        yesterday_date = (self.ctx.get_time() - timedelta(days=1)).strftime("%Y-%m-%d")
+        yesterday_strengths = history.get(yesterday_date, {}) if isinstance(history.get(yesterday_date, {}), dict) else {}
+
+        today_ranked = sorted(today_strengths.items(), key=lambda x: x[1], reverse=True)
+        today_rank_map = {name: idx + 1 for idx, (name, _) in enumerate(today_ranked)}
+
+        yesterday_ranked = sorted(yesterday_strengths.items(), key=lambda x: x[1], reverse=True)
+        yesterday_rank_map = {name: idx + 1 for idx, (name, _) in enumerate(yesterday_ranked)}
+
+        sectors = {}
+        for sector, strength in today_ranked:
+            yesterday_strength = yesterday_strengths.get(sector)
+            momentum = calculate_momentum(strength, yesterday_strength)
+
+            today_rank = today_rank_map.get(sector)
+            yesterday_rank = yesterday_rank_map.get(sector)
+            rank_change = None if yesterday_rank is None else yesterday_rank - today_rank
+
+            sectors[sector] = {
+                "strength": round(strength, 2),
+                "momentum": momentum,
+                "rank": today_rank,
+                "rank_change": rank_change,
+            }
+
+        history[today_date] = today_strengths
+        self._save_sector_history(history)
+
+        return {
+            "date": today_date,
+            "sectors": sectors,
+        }
 
     def _initialize_and_check_config(self) -> None:
         """通用初始化和配置检查"""
