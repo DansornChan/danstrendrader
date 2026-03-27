@@ -208,6 +208,12 @@ class NotificationRenderer:
             lines.append("💡 **研判策略建议**")
             lines.append("")
             lines.append(ai_analysis.outlook_strategy.strip())
+            lines.append("")
+
+        if getattr(ai_analysis, "policy_deep_dive", ""):
+            lines.append("🏛️ **重大政策全文解读**")
+            lines.append("")
+            lines.append(ai_analysis.policy_deep_dive.strip())
 
         return "\n".join(lines).strip()
 
@@ -228,4 +234,76 @@ class NotificationRenderer:
     def _render_trend_compare(self, history_summary, ai_analysis) -> str:
         if not history_summary:
             return ""
-        return ""
+
+        sectors = history_summary.get("sectors", {})
+        if not sectors:
+            return ""
+
+        report_date = history_summary.get("date", self.now.strftime("%Y-%m-%d"))
+        lines = [
+            "📊 Danstrendradar 每日投资雷达",
+            f"📅 {report_date}",
+            "",
+            "🌀 板块强度排名（含动量）",
+            "",
+        ]
+
+        ordered = sorted(sectors.items(), key=lambda x: x[1].get("rank", 999))
+        rank_marks = ["①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"]
+
+        for idx, (name, data) in enumerate(ordered):
+            strength = float(data.get("strength", 0))
+            momentum = data.get("momentum", "N/A")
+            rank_change = data.get("rank_change", None)
+
+            strength_arrow = "🔼" if strength > 0 else ("🔽" if strength < 0 else "→")
+
+            if momentum == "N/A":
+                momentum_text = "N/A"
+                momentum_arrow = "→"
+            else:
+                momentum_val = float(momentum)
+                momentum_text = f"{momentum_val:+.1f}"
+                momentum_arrow = "↑" if momentum_val > 0 else ("↓" if momentum_val < 0 else "→")
+
+            if rank_change is None:
+                rank_change_text = "新"
+            elif rank_change > 0:
+                rank_change_text = f"+{rank_change} 位"
+            elif rank_change < 0:
+                rank_change_text = f"{rank_change} 位"
+            else:
+                rank_change_text = "→"
+
+            rank_mark = rank_marks[idx] if idx < len(rank_marks) else f"{idx + 1}."
+            lines.append(f"{rank_mark} {name}：{strength:+.1f} {strength_arrow}")
+            lines.append(f"   动量：{momentum_text} {momentum_arrow}")
+            lines.append(f"   排名变化：{rank_change_text}")
+            lines.append("")
+
+        strongest_sector = ordered[0][0] if ordered else "暂无"
+        momentum_candidates = [
+            (n, d.get("momentum")) for n, d in ordered if d.get("momentum") != "N/A"
+        ]
+        momentum_candidates = [(n, float(m)) for n, m in momentum_candidates]
+
+        if momentum_candidates:
+            top_momentum_sector, top_momentum = max(momentum_candidates, key=lambda x: x[1])
+            negative_momentum = [n for n, m in momentum_candidates if m < 0]
+            neg_text = "、".join(negative_momentum[:3]) if negative_momentum else "暂无"
+            risk_text = "整体市场风险偏中性。" if len(negative_momentum) <= len(momentum_candidates) / 2 else "整体市场风险偏谨慎。"
+            momentum_sentence = f"{top_momentum_sector}板块动量最强（{top_momentum:+.1f}），存在短线强化迹象。"
+        else:
+            neg_text = "暂无"
+            risk_text = "整体市场风险偏中性。"
+            momentum_sentence = "暂无可比昨日数据的动量信息。"
+
+        lines.extend([
+            "⚡ 趋势判断",
+            f"当前最强板块：{strongest_sector}。",
+            f"当前动量最大板块：{momentum_sentence}",
+            f"当前动量转负板块：{neg_text}。",
+            risk_text,
+        ])
+
+        return "\n".join(lines).strip()
