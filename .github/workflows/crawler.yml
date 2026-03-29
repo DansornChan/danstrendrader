@@ -5,10 +5,6 @@ on:
     - cron: "0 0,3,6,12,15 * * *"
   workflow_dispatch:
 
-# ===== 解决 Node.js 20 弃用问题的关键：全局开启 Node 24 =====
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 concurrency:
   group: crawler-${{ github.ref_name }}
   cancel-in-progress: true
@@ -53,11 +49,10 @@ jobs:
         env:
           # ===== AI 核心配置 =====
           AI_ANALYSIS_ENABLED: "true"
-          AI_PROVIDER: "gemini" 
-          AI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          # 修改这里：加上 gemini/ 前缀
-          AI_MODEL: "gemini/gemini-1.5-flash" 
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AI_PROVIDER: "deepseek"
+          AI_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          AI_MODEL: "deepseek/deepseek-chat"
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
 
           # ===== Telegram 通知 =====
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
