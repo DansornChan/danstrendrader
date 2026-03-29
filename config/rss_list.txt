@@ -1,0 +1,10 @@
+# RSS 源清单（基础源）
+# 每行格式：id|name|url
+# 说明：
+# - id 仅允许字母/数字/中划线，建议小写
+# - name 为展示名称
+# - url 为 RSS/Atom/JSON Feed 链接
+
+chinanews-import|中新网-要闻|http://www.chinanews.com/rss/import.xml
+chinanews-finance|中新网-财经|http://www.chinanews.com/rss/finance.xml
+hacker-news|Hacker News|https://hnrss.org/frontpage

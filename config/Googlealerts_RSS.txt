@@ -1,0 +1,19 @@
+# Google Alerts RSS 清单
+# 每行格式：关键词|RSS_URL
+# 示例：
+# NVIDIA|https://www.google.com/alerts/feeds/xxxxxxxxxxxxxxxx/xxxxxxxxxxxxxxxx
+# 半导体设备|https://www.google.com/alerts/feeds/xxxxxxxxxxxxxxxx/xxxxxxxxxxxxxxxx
+https://www.google.com/alerts/feeds/01956543692401673993/15379042757922879577 #半导体
+https://www.google.com/alerts/feeds/01956543692401673993/6188672236013528607 #黄金
+https://www.google.com/alerts/feeds/01956543692401673993/17177837040048107419 #美联储
+https://www.google.com/alerts/feeds/01956543692401673993/17177837040048107441 #特朗普
+https://www.google.com/alerts/feeds/01956543692401673993/17554848653719982675 #歌尔股份
+https://www.google.com/alerts/feeds/01956543692401673993/10021068414204936476 #国电南瑞
+https://www.google.com/alerts/feeds/01956543692401673993/909368256333531448 #稀土
+https://www.google.com/alerts/feeds/01956543692401673993/909368256333529835 #能源
+https://www.google.com/alerts/feeds/01956543692401673993/11593854843621956785 #机器人
+https://www.google.com/alerts/feeds/01956543692401673993/11593854843621956980 #芯片
+https://www.google.com/alerts/feeds/01956543692401673993/7620411562158041053 #军事
+https://www.google.com/alerts/feeds/01956543692401673993/12629584064395130765 #军工
+https://www.google.com/alerts/feeds/01956543692401673993/12629584064395130234 #航天
+https://www.google.com/alerts/feeds/01956543692401673993/12592741674450529665 #央视
