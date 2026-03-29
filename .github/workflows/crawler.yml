@@ -49,10 +49,10 @@ jobs:
         env:
           # ===== AI 核心配置 =====
           AI_ANALYSIS_ENABLED: "true"
-          AI_PROVIDER: "deepseek"
-          AI_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          AI_MODEL: "deepseek/deepseek-chat"
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          AI_PROVIDER: "gemini"
+          AI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          AI_MODEL: "gemini/gemini-2.5-flash"
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
           # ===== Telegram 通知 =====
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
