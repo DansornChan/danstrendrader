@@ -55,7 +55,8 @@ jobs:
           AI_ANALYSIS_ENABLED: "true"
           AI_PROVIDER: "gemini" 
           AI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          AI_MODEL: "gemini-1.5-flash"
+          # 修改这里：加上 gemini/ 前缀
+          AI_MODEL: "gemini/gemini-1.5-flash" 
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
           # ===== Telegram 通知 =====
